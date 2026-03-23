@@ -1,0 +1,9 @@
+torch
+torchvision
+pillow
+kornia
+transformers
+fastapi
+uvicorn
+python-multipart
+python-json-logger

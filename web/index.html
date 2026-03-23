@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>小飞AI抠图 - 网页版</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    :root {
+      --primary: #4f46e5;
+      --success: #10b981;
+      --bg: #f9fafb;
+      --surface: #fff;
+      --border: #e5e7eb;
+      --text: #111827;
+      --text-secondary: #6b7280;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 16px 24px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+    }
+    .logo { font-size: 20px; font-weight: 600; color: var(--primary); }
+    .main { padding: 20px; max-width: 1400px; margin: 0 auto; }
+    .toolbar { display: flex; gap: 12px; margin-bottom: 20px; }
+    .btn {
+      padding: 10px 20px;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      background: var(--primary);
+      color: white;
+    }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn.success { background: var(--success); }
+    .workspace { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+    .panel-header {
+      padding: 14px 18px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      border-bottom: 1px solid var(--border);
+    }
+    .panel-content {
+      height: 500px;
+      position: relative;
+      overflow: hidden;
+      cursor: grab;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .panel-content:active { cursor: grabbing; }
+    
+    .image-container {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform-origin: center center;
+      transition: transform 0.05s ease-out;
+      cursor: grab;
+    }
+    .image-container:active { cursor: grabbing; }
+    .image-container img {
+      display: block;
+      pointer-events: none;
+    }
+    
+    .original-bg { background: #f3f4f6; }
+    .result-bg { background: repeating-conic-gradient(#e5e7eb 0% 25%, #f3f4f6 0% 50%) 50% / 20px 20px; }
+    .drop-hint {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      color: var(--text-secondary);
+    }
+    .footer { text-align: center; padding: 20px; color: var(--text-secondary); font-size: 13px; }
+    @media (max-width: 768px) { .workspace { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <header class="header">
+    <div class="logo">✂️ 小飞AI抠图</div>
+    <div class="model-status">🔄 模型加载中...</div>
+  </header>
+  
+  <main class="main">
+    <div class="toolbar">
+      <button class="btn" onclick="selectImage()">📁 选择图片</button>
+      <button class="btn success" id="processBtn" onclick="processImage()" disabled>✨ AI抠图</button>
+      <button class="btn" id="saveBtn" onclick="saveImage()" disabled>💾 导出图片</button>
+    </div>
+    
+    <div class="workspace">
+      <div class="panel">
+        <div class="panel-header">原图</div>
+        <div class="panel-content original-bg" id="originalPanel">
+          <div class="drop-hint">点击选择或拖拽图片</div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-header">结果预览</div>
+        <div class="panel-content result-bg" id="resultPanel">
+          <div class="drop-hint">处理后预览</div>
+        </div>
+      </div>
+    </div>
+  </main>
+  
+  <footer class="footer">
+    使用 RMBG-2.0 本地AI模型 | 保护隐私 · 离线可用
+  </footer>
+  
+  <input type="file" id="fileInput" accept="image/*" style="display:none">
+  
+  <script>
+    const API_URL = 'http://127.0.0.1:8765';
+    let originalImage = null;
+    let processedImage = null;
+    let imageFilename = 'image.png';
+    
+    let scale = 1;
+    let translateX = 0;
+    let translateY = 0;
+    let isDragging = false;
+    let startX = 0, startY = 0;
+    let startTranslateX = 0, startTranslateY = 0;
+    
+    const originalPanel = document.getElementById('originalPanel');
+    const resultPanel = document.getElementById('resultPanel');
+    
+    function syncPanels() {
+      const origContainer = originalPanel.querySelector('.image-container');
+      const resultContainer = resultPanel.querySelector('.image-container');
+      if (origContainer) {
+        origContainer.style.transform = `translate(calc(-50% + ${translateX}px), calc(-50% + ${translateY}px)) scale(${scale})`;
+      }
+      if (resultContainer) {
+        resultContainer.style.transform = `translate(calc(-50% + ${translateX}px), calc(-50% + ${translateY}px)) scale(${scale})`;
+      }
+    }
+    
+    function handleWheel(e) {
+      e.preventDefault();
+      const delta = e.deltaY > 0 ? 0.9 : 1.1;
+      scale = Math.max(0.1, Math.min(10, scale * delta));
+      syncPanels();
+    }
+    
+    function handleMouseDown(e) {
+      if (!originalImage && !processedImage) return;
+      isDragging = true;
+      startX = e.clientX;
+      startY = e.clientY;
+      startTranslateX = translateX;
+      startTranslateY = translateY;
+    }
+    
+    function handleMouseMove(e) {
+      if (!isDragging) return;
+      translateX = startTranslateX + (e.clientX - startX);
+      translateY = startTranslateY + (e.clientY - startY);
+      syncPanels();
+    }
+    
+    function handleMouseUp() {
+      isDragging = false;
+    }
+    
+    originalPanel.addEventListener('wheel', handleWheel);
+    originalPanel.addEventListener('mousedown', handleMouseDown);
+    resultPanel.addEventListener('wheel', handleWheel);
+    resultPanel.addEventListener('mousedown', handleMouseDown);
+    
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    
+    async function checkModelStatus() {
+      try {
+        const res = await fetch(API_URL + '/model/status');
+        const data = await res.json();
+        document.querySelector('.model-status').textContent = 
+          data.loaded ? '✅ 模型已就绪' : '⏳ 模型加载中...';
+      } catch (e) {
+        document.querySelector('.model-status').textContent = '❌ 后端未启动';
+      }
+    }
+    
+    function selectImage() {
+      document.getElementById('fileInput').click();
+    }
+    
+    document.getElementById('fileInput').addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (file) {
+        imageFilename = file.name;
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          originalImage = event.target.result;
+          scale = 1;
+          translateX = 0;
+          translateY = 0;
+          showImage('originalPanel', originalImage);
+          processedImage = null;
+          showImage('resultPanel', null, true);
+          document.getElementById('processBtn').disabled = false;
+        };
+        reader.readAsDataURL(file);
+      }
+    });
+    
+    function showImage(panelId, src, showPlaceholder = false) {
+      const panel = document.getElementById(panelId);
+      panel.innerHTML = '';
+      
+      if (showPlaceholder) {
+        panel.innerHTML = '<div class="drop-hint">' + 
+          (panelId === 'resultPanel' ? '处理后预览' : '点击选择或拖拽图片') + '</div>';
+        return;
+      }
+      
+      const container = document.createElement('div');
+      container.className = 'image-container';
+      
+      const img = document.createElement('img');
+      img.src = src;
+      img.onload = () => {
+        const panel = document.getElementById(panelId);
+        const maxW = panel.clientWidth;
+        const maxH = panel.clientHeight;
+        const scaleW = maxW / img.naturalWidth;
+        const scaleH = maxH / img.naturalHeight;
+        scale = Math.max(scaleW, scaleH);
+        
+        translateX = 0;
+        translateY = 0;
+        
+        img.style.width = img.naturalWidth + 'px';
+        img.style.height = img.naturalHeight + 'px';
+        syncPanels();
+      };
+      
+      container.appendChild(img);
+      panel.appendChild(container);
+    }
+    
+    async function processImage() {
+      if (!originalImage) return;
+      
+      const btn = document.getElementById('processBtn');
+      btn.disabled = true;
+      btn.textContent = '⏳ 处理中...';
+      
+      try {
+        const base64Data = originalImage.replace(/^data:image\/\w+;base64,/, '');
+        
+        const res = await fetch(API_URL + '/process', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ image: base64Data })
+        });
+        
+        if (!res.ok) throw new Error('处理失败');
+        
+        const blob = await res.blob();
+        processedImage = URL.createObjectURL(blob);
+        showImage('resultPanel', processedImage);
+        document.getElementById('saveBtn').disabled = false;
+      } catch (e) {
+        alert('处理失败: ' + e.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '✨ AI抠图';
+      }
+    }
+    
+    async function saveImage() {
+      if (!processedImage) return;
+      
+      const a = document.createElement('a');
+      a.href = processedImage;
+      a.download = 'removed_bg_' + imageFilename;
+      a.click();
+    }
+    
+    checkModelStatus();
+    setInterval(checkModelStatus, 5000);
+  </script>
+</body>
+</html>
