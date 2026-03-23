@@ -246,6 +246,8 @@ body {
 .image-container .preview-image {
   display: block;
   max-width: none;
+  pointer-events: none;
+  user-select: none;
 }
 
 .panel-content.drag-active {

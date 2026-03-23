@@ -1,17 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import './App.css';
 
-declare global {
-  interface Window {
-    electronAPI: {
-      selectImage: () => Promise<{ path: string; data: string; name: string } | null>;
-      processImage: (imageData: string, filename: string) => Promise<string>;
-      saveImage: (imageData: string) => Promise<string | null>;
-      checkModelStatus: () => Promise<{ loaded: boolean; path: string }>;
-    };
-  }
-}
-
 function App() {
   const [originalImage, setOriginalImage] = useState<string | null>(null);
   const [processedImage, setProcessedImage] = useState<string | null>(null);
@@ -32,24 +21,48 @@ function App() {
   const originalImgRef = useRef<HTMLImageElement>(null);
 
   useEffect(() => {
-    checkModelStatus();
+    const handleWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const delta = e.deltaY > 0 ? 0.9 : 1.1;
+      setScale(prev => Math.max(0.1, Math.min(10, prev * delta)));
+    };
+
+    const panel1 = originalPanelRef.current;
+    const panel2 = resultPanelRef.current;
+
+    panel1?.addEventListener('wheel', handleWheel, { passive: false });
+    panel2?.addEventListener('wheel', handleWheel, { passive: false });
+
+    return () => {
+      panel1?.removeEventListener('wheel', handleWheel);
+      panel2?.removeEventListener('wheel', handleWheel);
+    };
   }, []);
 
   const checkModelStatus = async () => {
     try {
-      const status = await window.electronAPI.checkModelStatus();
+      const res = await fetch('http://127.0.0.1:8765/model/status');
+      const status = await res.json();
       setModelStatus(status.loaded ? 'ready' : 'error');
     } catch (e) {
       setModelStatus('error');
     }
   };
 
-  const handleSelectImage = async () => {
-    const result = await window.electronAPI.selectImage();
-    if (result) {
-      setOriginalImage(`data:image/png;base64,${result.data}`);
-      setProcessedImage(null);
-      resetTransform();
+  const handleSelectImage = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        setOriginalImage(event.target?.result as string);
+        setProcessedImage(null);
+        resetTransform();
+      };
+      reader.readAsDataURL(file);
     }
   };
 
@@ -59,8 +72,18 @@ function App() {
     setIsProcessing(true);
     try {
       const base64Data = originalImage.replace(/^data:image\/\w+;base64,/, '');
-      const result = await window.electronAPI.processImage(base64Data, 'image.png');
-      setProcessedImage(`data:image/png;base64,${result}`);
+      
+      const res = await fetch('http://127.0.0.1:8765/process', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: base64Data })
+      });
+      
+      if (!res.ok) throw new Error('处理失败');
+      
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      setProcessedImage(url);
     } catch (e) {
       console.error('Processing failed:', e);
       alert('处理失败，请重试');
@@ -69,11 +92,13 @@ function App() {
     }
   };
 
-  const handleSave = async () => {
+  const handleSave = () => {
     if (!processedImage) return;
     
-    const base64Data = processedImage.replace(/^data:image\/\w+;base64,/, '');
-    await window.electronAPI.saveImage(base64Data);
+    const link = document.createElement('a');
+    link.href = processedImage;
+    link.download = 'removed_bg.png';
+    link.click();
   };
 
   const handleDrop = (e: React.DragEvent) => {
@@ -195,7 +220,6 @@ function App() {
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}
               onClick={() => !originalImage && fileInputRef.current?.click()}
-              onWheel={handleWheel}
               onMouseDown={handleMouseDown}
               onMouseMove={handleMouseMove}
               onMouseUp={handleMouseUp}
@@ -232,18 +256,7 @@ function App() {
                 ref={fileInputRef}
                 type="file"
                 accept="image/png,image/jpeg,image/jpg,image/webp"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) {
-                    const reader = new FileReader();
-                    reader.onload = (event) => {
-                      setOriginalImage(event.target?.result as string);
-                      setProcessedImage(null);
-                      resetTransform();
-                    };
-                    reader.readAsDataURL(file);
-                  }
-                }}
+                onChange={handleFileChange}
                 style={{ display: 'none' }}
               />
             </div>
@@ -259,7 +272,6 @@ function App() {
             <div 
               ref={resultPanelRef}
               className={`panel-content result-panel ${isDragging ? 'dragging' : ''}`}
-              onWheel={handleWheel}
               onMouseDown={handleMouseDown}
               onMouseMove={handleMouseMove}
               onMouseUp={handleMouseUp}
