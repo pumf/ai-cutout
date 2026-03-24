@@ -12,7 +12,7 @@
     "build": "npm run build:renderer && npm run build:electron",
     "build:renderer": "vite build",
     "build:electron": "tsc -p tsconfig.main.json",
-    "package": "npm run build && electron-builder --win --mac",
+    "package": "npm run build && electron-builder --mac",
     "start": "electron ."
   },
   "dependencies": {
@@ -38,26 +38,50 @@
     },
     "files": [
       "dist/**/*",
-      "package.json"
+      "package.json",
+      "backend/**/*",
+      "node_modules/**/*"
     ],
-    "win": {
-      "target": [
-        {
-          "target": "nsis",
-          "arch": [
-            "x64"
-          ]
-        }
-      ]
-    },
+    "extraResources": [
+      {
+        "from": "backend",
+        "to": "backend"
+      },
+      {
+        "from": "model_files",
+        "to": "model_files"
+      },
+      {
+        "from": "venv",
+        "to": "venv"
+      },
+      {
+        "from": "dist/renderer",
+        "to": "dist/renderer"
+      },
+      {
+        "from": "node_modules/vite",
+        "to": "node_modules/vite"
+      },
+      {
+        "from": "node_modules/@vitejs",
+        "to": "node_modules/@vitejs"
+      },
+      {
+        "from": "node_modules/esbuild",
+        "to": "node_modules/esbuild"
+      },
+      {
+        "from": "node_modules/rollup",
+        "to": "node_modules/rollup"
+      }
+    ],
     "mac": {
       "target": [
         "dmg"
-      ]
+      ],
+      "category": "public.app-category.graphics-design"
     },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true
-    }
+    "asar": false
   }
 }

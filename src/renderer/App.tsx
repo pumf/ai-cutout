@@ -6,6 +6,10 @@ function App() {
   const [processedImage, setProcessedImage] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [modelStatus, setModelStatus] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [currentModel, setCurrentModel] = useState<{name: string; path: string} | null>(null);
+  const [availableModels, setAvailableModels] = useState<{name: string; path: string; type: string; size_mb: number}[]>([]);
+  const [showModelSelector, setShowModelSelector] = useState(false);
+  const [isLoadingModel, setIsLoadingModel] = useState(false);
   const [dragActive, setDragActive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   
@@ -39,15 +43,50 @@ function App() {
     };
   }, []);
 
-  const checkModelStatus = async () => {
+  const loadAvailableModels = async () => {
     try {
-      const res = await fetch('http://127.0.0.1:8765/model/status');
-      const status = await res.json();
-      setModelStatus(status.loaded ? 'ready' : 'error');
+      const res = await fetch('http://127.0.0.1:8765/models');
+      const data = await res.json();
+      setAvailableModels(data.available_models || []);
+      if (data.current_model?.loaded) {
+        setCurrentModel(data.current_model);
+        setModelStatus('ready');
+      } else {
+        setModelStatus('error');
+      }
     } catch (e) {
+      console.error('Failed to load models:', e);
       setModelStatus('error');
     }
   };
+
+  const loadModel = async (path: string) => {
+    setIsLoadingModel(true);
+    try {
+      const res = await fetch('http://127.0.0.1:8765/models/load', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setCurrentModel(data.model);
+        setModelStatus('ready');
+        setShowModelSelector(false);
+      } else {
+        alert('加载模型失败: ' + (data.detail || '未知错误'));
+      }
+    } catch (e) {
+      console.error('Failed to load model:', e);
+      alert('加载模型失败');
+    } finally {
+      setIsLoadingModel(false);
+    }
+  };
+
+  useEffect(() => {
+    loadAvailableModels();
+  }, []);
 
   const handleSelectImage = () => {
     fileInputRef.current?.click();
@@ -177,12 +216,49 @@ function App() {
           <span className="logo-text">小飞AI抠图</span>
         </div>
         <div className="header-actions">
+          <button className="btn btn-model" onClick={() => setShowModelSelector(true)}>
+            <span className="btn-icon">🤖</span>
+            {currentModel ? currentModel.name : '选择模型'}
+          </button>
           <div className={`model-status ${modelStatus}`}>
             <span className="status-dot"></span>
-            <span>{modelStatus === 'ready' ? '模型已就绪' : '模型加载中...'}</span>
+            <span>{modelStatus === 'ready' ? '已加载' : '未加载'}</span>
           </div>
         </div>
       </header>
+
+      {showModelSelector && (
+        <div className="modal-overlay" onClick={() => setShowModelSelector(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>选择 AI 模型</h3>
+              <button className="modal-close" onClick={() => setShowModelSelector(false)}>×</button>
+            </div>
+            <div className="modal-content">
+              {availableModels.length === 0 ? (
+                <p className="no-models">未找到模型文件，请将模型放入 model_files 目录</p>
+              ) : (
+                <div className="model-list">
+                  {availableModels.map((m, idx) => (
+                    <div 
+                      key={idx} 
+                      className={`model-item ${currentModel?.path === m.path ? 'active' : ''}`}
+                      onClick={() => loadModel(m.path)}
+                    >
+                      <div className="model-info">
+                        <span className="model-name">{m.name}</span>
+                        <span className="model-type">{m.type.toUpperCase()}</span>
+                      </div>
+                      <span className="model-size">{m.size_mb} MB</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            {isLoadingModel && <div className="modal-loading">加载模型中...</div>}
+          </div>
+        </div>
+      )}
 
       <main className="main">
         <div className="toolbar">

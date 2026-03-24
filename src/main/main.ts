@@ -5,41 +5,101 @@ import { spawn } from 'child_process';
 
 let mainWindow: BrowserWindow | null = null;
 let pythonProcess: any = null;
+let viteServer: any = null;
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 
 const getAppPath = () => {
   if (app.isPackaged) {
-    return path.dirname(app.getPath('exe'));
+    return path.join(process.resourcesPath, 'app');
   }
   return path.join(__dirname, '..', '..');
 };
 
-function startPythonBackend() {
-  const appPath = getAppPath();
-  const backendPath = path.join(appPath, 'backend', 'main.py');
-  const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
-  
-  pythonProcess = spawn(pythonCmd, [backendPath], {
-    stdio: 'pipe',
-    shell: true,
-    cwd: path.join(appPath, 'backend'),
-  });
-  
-  pythonProcess.stdout.on('data', (data: any) => {
-    console.log('[Python Backend]:', data.toString());
-  });
-  
-  pythonProcess.stderr.on('data', (data: any) => {
-    console.error('[Python Error]:', data.toString());
-  });
-  
-  pythonProcess.on('close', (code: number) => {
-    console.log(`Python backend exited with code ${code}`);
+const getDistPath = () => {
+  if (app.isPackaged) {
+    return path.join(process.resourcesPath, 'app', 'dist', 'renderer');
+  }
+  return path.join(getAppPath(), 'dist', 'renderer');
+};
+
+const getPythonCmd = () => {
+  if (app.isPackaged) {
+    const venvPath = path.join(process.resourcesPath, 'venv', 'bin', 'python3');
+    if (fs.existsSync(venvPath)) {
+      return venvPath;
+    }
+    console.log('venv not found at', venvPath, 'trying system python');
+    return 'python3';
+  }
+  const appPath = path.join(__dirname, '..', '..');
+  return process.platform === 'win32' ? 'python' : 'python3';
+};
+
+async function startViteServer(): Promise<number> {
+  return new Promise((resolve) => {
+    const vitePath = app.isPackaged
+      ? path.join(process.resourcesPath, 'node_modules', 'vite', 'bin', 'vite.js')
+      : path.join(getAppPath(), 'node_modules', 'vite', 'bin', 'vite.js');
+    
+    const viteProc = spawn('node', [vitePath, '--port', '5173'], {
+      cwd: app.isPackaged ? process.resourcesPath : getAppPath(),
+      stdio: 'pipe',
+      shell: true,
+      env: { ...process.env, NODE_ENV: 'development' }
+    });
+    
+    viteProc.stdout.on('data', (data: any) => {
+      const output = data.toString();
+      console.log('[Vite]:', output);
+      if (output.includes('Local:') && output.includes('5173')) {
+        resolve(5173);
+      }
+    });
+    
+    viteProc.stderr.on('data', (data: any) => {
+      console.log('[Vite]:', data.toString());
+    });
+    
+    viteServer = viteProc;
   });
 }
 
-function createWindow() {
+async function startPythonBackend(): Promise<void> {
+  const appPath = getAppPath();
+  const pythonCmd = getPythonCmd();
+  
+  const backendPath = app.isPackaged 
+    ? path.join(process.resourcesPath, 'backend', 'main.py')
+    : path.join(appPath, 'backend', 'main.py');
+  
+  return new Promise((resolve) => {
+    pythonProcess = spawn(pythonCmd, [backendPath], {
+      stdio: 'pipe',
+      shell: true,
+      cwd: app.isPackaged 
+        ? path.join(process.resourcesPath, 'backend')
+        : path.join(appPath, 'backend'),
+      env: { ...process.env, PYTHONPATH: process.resourcesPath }
+    });
+    
+    pythonProcess.stdout.on('data', (data: any) => {
+      console.log('[Python Backend]:', data.toString());
+    });
+    
+    pythonProcess.stderr.on('data', (data: any) => {
+      console.log('[Python Error]:', data.toString());
+    });
+    
+    pythonProcess.on('close', (code: number) => {
+      console.log(`Python backend exited with code ${code}`);
+    });
+    
+    setTimeout(resolve, 3000);
+  });
+}
+
+async function createWindow() {
   const appPath = getAppPath();
   
   mainWindow = new BrowserWindow({
@@ -50,17 +110,29 @@ function createWindow() {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      preload: path.join(__dirname, 'preload.js'),
+      preload: app.isPackaged
+        ? path.join(process.resourcesPath, 'app', 'dist', 'main', 'preload.js')
+        : path.join(__dirname, 'preload.js'),
     },
     title: '小飞AI抠图',
     backgroundColor: '#ffffff',
+    show: false,
+  });
+  
+  mainWindow.once('ready-to-show', () => {
+    mainWindow?.show();
   });
   
   if (isDev) {
+    await startViteServer();
+    await startPythonBackend();
     mainWindow.loadURL('http://localhost:5173');
     mainWindow.webContents.openDevTools();
   } else {
-    mainWindow.loadFile(path.join(appPath, 'dist', 'renderer', 'index.html'));
+    await startPythonBackend();
+    await startViteServer();
+    await new Promise(resolve => setTimeout(resolve, 3000));
+    mainWindow.loadURL('http://localhost:5173');
   }
   
   mainWindow.on('closed', () => {
@@ -68,12 +140,8 @@ function createWindow() {
   });
 }
 
-app.whenReady().then(() => {
-  createWindow();
-  
-  if (!isDev) {
-    startPythonBackend();
-  }
+app.whenReady().then(async () => {
+  await createWindow();
   
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -85,6 +153,9 @@ app.whenReady().then(() => {
 app.on('window-all-closed', () => {
   if (pythonProcess) {
     pythonProcess.kill();
+  }
+  if (viteServer) {
+    viteServer.kill();
   }
   if (process.platform !== 'darwin') {
     app.quit();
