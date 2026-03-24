@@ -6,8 +6,8 @@ function App() {
   const [processedImage, setProcessedImage] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [modelStatus, setModelStatus] = useState<'loading' | 'ready' | 'error'>('loading');
-  const [currentModel, setCurrentModel] = useState<{name: string; path: string} | null>(null);
-  const [availableModels, setAvailableModels] = useState<{name: string; path: string; type: string; size_mb: number}[]>([]);
+  const [currentModel, setCurrentModel] = useState<{name: string; display_name?: string; path: string} | null>(null);
+  const [availableModels, setAvailableModels] = useState<{id: string; name: string; display_name?: string; path: string | null; type: string; size_mb: number; exists: boolean; download_url?: string}[]>([]);
   const [showModelSelector, setShowModelSelector] = useState(false);
   const [isLoadingModel, setIsLoadingModel] = useState(false);
   const [dragActive, setDragActive] = useState(false);
@@ -45,9 +45,10 @@ function App() {
 
   const loadAvailableModels = async () => {
     try {
-      const res = await fetch('http://127.0.0.1:8765/models');
+      const res = await fetch('http://127.0.0.1:8765/models/fixed');
       const data = await res.json();
-      setAvailableModels(data.available_models || []);
+      setAvailableModels(data.models || []);
+      
       if (data.current_model?.loaded) {
         setCurrentModel(data.current_model);
         setModelStatus('ready');
@@ -73,12 +74,75 @@ function App() {
         setCurrentModel(data.model);
         setModelStatus('ready');
         setShowModelSelector(false);
+        // Refresh model list
+        loadAvailableModels();
       } else {
         alert('加载模型失败: ' + (data.detail || '未知错误'));
       }
     } catch (e) {
       console.error('Failed to load model:', e);
       alert('加载模型失败');
+    } finally {
+      setIsLoadingModel(false);
+    }
+  };
+
+  const loadFixedModel = async (modelId: string) => {
+    setIsLoadingModel(true);
+    try {
+      const res = await fetch(`http://127.0.0.1:8765/models/load/${modelId}`, {
+        method: 'POST'
+      });
+      const data = await res.json();
+      if (data.success) {
+        setCurrentModel(data.model);
+        setModelStatus('ready');
+        setShowModelSelector(false);
+        // Refresh model list
+        loadAvailableModels();
+      } else {
+        alert('加载模型失败: ' + (data.detail || '未知错误'));
+      }
+    } catch (e) {
+      console.error('Failed to load model:', e);
+      alert('加载模型失败');
+    } finally {
+      setIsLoadingModel(false);
+    }
+  };
+
+  const selectCustomModel = async () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.onnx,.safetensors';
+    
+    input.onchange = async (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (!file) return;
+      alert(`已选择: ${file.name}\n\n在打包应用中，文件会被复制到模型目录。\n当前为Web模式，请将模型文件放入 model_files 目录后刷新页面。`);
+    };
+    
+    input.click();
+  };
+
+  const downloadModel = async (modelId: string) => {
+    setIsLoadingModel(true);
+    try {
+      const res = await fetch(`http://127.0.0.1:8765/models/download/${modelId}`, {
+        method: 'POST'
+      });
+      const data = await res.json();
+      if (data.success) {
+        setCurrentModel(data.model);
+        setModelStatus('ready');
+        setShowModelSelector(false);
+        loadAvailableModels();
+      } else {
+        alert('下载模型失败: ' + (data.detail || '未知错误'));
+      }
+    } catch (e) {
+      console.error('Failed to download model:', e);
+      alert('下载模型失败');
     } finally {
       setIsLoadingModel(false);
     }
@@ -218,7 +282,7 @@ function App() {
         <div className="header-actions">
           <button className="btn btn-model" onClick={() => setShowModelSelector(true)}>
             <span className="btn-icon">🤖</span>
-            {currentModel ? currentModel.name : '选择模型'}
+            {currentModel?.display_name || currentModel?.name || '选择模型'}
           </button>
           <div className={`model-status ${modelStatus}`}>
             <span className="status-dot"></span>
@@ -235,25 +299,50 @@ function App() {
               <button className="modal-close" onClick={() => setShowModelSelector(false)}>×</button>
             </div>
             <div className="modal-content">
-              {availableModels.length === 0 ? (
-                <p className="no-models">未找到模型文件，请将模型放入 model_files 目录</p>
-              ) : (
-                <div className="model-list">
-                  {availableModels.map((m, idx) => (
-                    <div 
-                      key={idx} 
-                      className={`model-item ${currentModel?.path === m.path ? 'active' : ''}`}
-                      onClick={() => loadModel(m.path)}
-                    >
-                      <div className="model-info">
-                        <span className="model-name">{m.name}</span>
-                        <span className="model-type">{m.type.toUpperCase()}</span>
-                      </div>
-                      <span className="model-size">{m.size_mb} MB</span>
+              <div className="model-list">
+                {availableModels.map((m) => (
+                  <div 
+                    key={m.id} 
+                    className={`model-item ${currentModel?.path === m.path ? 'active' : ''}`}
+                  >
+                    <div className="model-info">
+                      <span className="model-name">{m.display_name}</span>
+                      <span className="model-type">{m.type.toUpperCase()}</span>
                     </div>
-                  ))}
-                </div>
-              )}
+                    {m.exists ? (
+                      <>
+                        <span className="model-size">{m.size_mb} MB</span>
+                        {currentModel?.path === m.path ? (
+                          <span className="model-loaded-badge">已加载</span>
+                        ) : (
+                          <button className="btn btn-small" onClick={() => loadFixedModel(m.id)}>
+                            加载
+                          </button>
+                        )}
+                        <button className="btn btn-small btn-outline" onClick={selectCustomModel}>
+                          重选
+                        </button>
+                      </>
+                    ) : (
+                      <div className="model-actions">
+                        <button className="btn btn-small" onClick={selectCustomModel}>
+                          选择文件
+                        </button>
+                        {m.download_url && (
+                          <a 
+                            className="btn btn-small btn-link" 
+                            href={m.download_url} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                          >
+                            快捷下载
+                          </a>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
             {isLoadingModel && <div className="modal-loading">加载模型中...</div>}
           </div>

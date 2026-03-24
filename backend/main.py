@@ -31,9 +31,58 @@ transform_image = None
 device = None
 current_model_info: Dict[str, Any] = {"name": None, "type": None, "path": None}
 
+# Fixed model configurations
+FIXED_MODELS = [
+    {
+        "id": "1.4",
+        "name": "RMBG-1.4",
+        "display_name": "RMBG-1.4 (速度快)",
+        "expected_paths": ["1.4/model.onnx", "1.4/model.safetensors"],
+        "type": "onnx",
+        "download_url": "https://modelscope.cn/models/AI-ModelScope/RMBG-1.4/resolve/master/onnx/model.onnx"
+    },
+    {
+        "id": "2.0",
+        "name": "RMBG-2.0",
+        "display_name": "RMBG-2.0 (效果好)",
+        "expected_paths": ["2.0/model.onnx", "2.0/model.safetensors", "model.safetensors"],
+        "type": "safetensors",
+        "download_url": "https://modelscope.cn/models/AI-ModelScope/RMBG-2.0/resolve/master/onnx/model.onnx"
+    }
+]
+
+
+def get_model_list() -> list:
+    """Get list of fixed models with their status"""
+    models = []
+    
+    for fixed in FIXED_MODELS:
+        # Check if any of the expected paths exist
+        model_path = None
+        for exp_path in fixed["expected_paths"]:
+            p = MODEL_DIR / exp_path
+            if p.exists():
+                model_path = p
+                break
+        
+        exists = model_path is not None
+        
+        models.append({
+            "id": fixed["id"],
+            "name": fixed["name"],
+            "display_name": fixed["display_name"],
+            "path": str(model_path) if exists else None,
+            "type": fixed["type"],
+            "exists": exists,
+            "size": model_path.stat().st_size if exists else 0,
+            "download_url": fixed.get("download_url")
+        })
+    
+    return models
+
 
 def scan_available_models() -> list:
-    """Scan model_files directory for available models"""
+    """Scan model_files directory for available models - backward compatible"""
     models = []
     
     if not MODEL_DIR.exists():
@@ -41,17 +90,25 @@ def scan_available_models() -> list:
     
     for item in MODEL_DIR.iterdir():
         if item.is_file() and item.suffix in ['.safetensors', '.onnx']:
+            name = item.stem
+            if name == 'model':
+                name = 'RMBG-2.0'
             models.append({
-                "name": item.name,
+                "name": name,
+                "display_name": "RMBG-2.0 (效果好)",
                 "path": str(item),
                 "type": "safetensors" if item.suffix == '.safetensors' else "onnx",
                 "size": item.stat().st_size
             })
         elif item.is_dir():
+            dir_name = item.name
             for subfile in item.iterdir():
                 if subfile.is_file() and subfile.suffix in ['.safetensors', '.onnx']:
+                    version = dir_name if dir_name != '1.4' else '1.4'
+                    display_name = f"RMBG-{version} (速度快)"
                     models.append({
-                        "name": f"{item.name}/{subfile.name}",
+                        "name": f"model_{dir_name}",
+                        "display_name": display_name,
                         "path": str(subfile),
                         "type": "safetensors" if subfile.suffix == '.safetensors' else "onnx",
                         "size": subfile.stat().st_size
@@ -141,18 +198,29 @@ def load_model(model_path: str) -> Dict[str, Any]:
     model_type = path.suffix
     logger.info(f"Loading {model_type} model from {model_path}")
     
+    # Get display name based on model path
+    path_obj = Path(model_path)
+    if '1.4' in str(path_obj):
+        model_name = "RMBG-1.4 (速度快)"
+        display_name = "RMBG-1.4 (速度快)"
+    elif path_obj.stem == 'model' or path_obj.name == 'model.safetensors':
+        model_name = "RMBG-2.0 (效果好)"
+        display_name = "RMBG-2.0 (效果好)"
+    else:
+        model_name = "RMBG Model"
+        display_name = path_obj.stem
+    
     if model_type == '.safetensors':
         model, transform_image, device = load_birefnet_model(path)
-        model_name = "BiRefNet (RMBG)"
     elif model_type == '.onnx':
         model = load_onnx_model(path)
         transform_image = None
-        model_name = "ONNX Model"
     else:
         raise HTTPException(status_code=400, detail=f"Unsupported model type: {model_type}")
     
     current_model_info = {
         "name": model_name,
+        "display_name": display_name,
         "type": model_type,
         "path": str(path),
         "loaded": True
@@ -316,6 +384,30 @@ async def list_models():
     }
 
 
+@app.get("/models/fixed")
+async def list_fixed_models():
+    """List fixed models with their configuration status"""
+    models = get_model_list()
+    for m in models:
+        if m['size']:
+            m['size_mb'] = round(m['size'] / 1024 / 1024, 2)
+        del m['size']
+    
+    # Check if current model matches one of the fixed models
+    current_id = None
+    if current_model_info.get('path'):
+        for m in models:
+            if m['path'] and m['path'] in current_model_info.get('path', ''):
+                current_id = m['id']
+                break
+    
+    return {
+        "models": models,
+        "current_model_id": current_id,
+        "current_model": current_model_info
+    }
+
+
 @app.post("/models/load")
 async def load_model_endpoint(request: Request):
     """Load a specific model by path"""
@@ -330,6 +422,90 @@ async def load_model_endpoint(request: Request):
         return {"success": True, "model": info}
     except Exception as e:
         logger.error(f"Failed to load model: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/models/load/{model_id}")
+async def load_fixed_model(model_id: str):
+    """Load a fixed model by ID (1.4 or 2.0)"""
+    fixed = next((m for m in FIXED_MODELS if m['id'] == model_id), None)
+    if not fixed:
+        raise HTTPException(status_code=404, detail=f"Unknown model: {model_id}")
+    
+    # Check if any of the expected paths exist
+    model_path = None
+    for exp_path in fixed["expected_paths"]:
+        p = MODEL_DIR / exp_path
+        if p.exists():
+            model_path = p
+            break
+    
+    if not model_path:
+        raise HTTPException(status_code=404, detail=f"Model not found")
+    
+    try:
+        info = load_model(str(model_path))
+        return {"success": True, "model": info}
+    except Exception as e:
+        logger.error(f"Failed to load model: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/models/load-custom")
+async def load_custom_model_endpoint(request: Request):
+    """Load a custom model from user provided path"""
+    body = await request.json()
+    model_path = body.get('path')
+    
+    if not model_path:
+        raise HTTPException(status_code=400, detail="Model path is required")
+    
+    path = Path(model_path)
+    if not path.exists():
+        raise HTTPException(status_code=404, detail=f"Model file not found: {model_path}")
+    
+    if path.suffix not in ['.safetensors', '.onnx']:
+        raise HTTPException(status_code=400, detail="Unsupported model format")
+    
+    try:
+        info = load_model(str(path))
+        return {"success": True, "model": info}
+    except Exception as e:
+        logger.error(f"Failed to load custom model: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/models/download/{model_id}")
+async def download_model(model_id: str):
+    """Download a model from URL"""
+    fixed = next((m for m in FIXED_MODELS if m['id'] == model_id), None)
+    if not fixed:
+        raise HTTPException(status_code=404, detail=f"Unknown model: {model_id}")
+    
+    download_url = fixed.get('download_url')
+    if not download_url:
+        raise HTTPException(status_code=400, detail="No download URL available")
+    
+    model_path = MODEL_DIR / fixed['expected_path']
+    
+    # Create parent directory if needed
+    model_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    if model_path.exists():
+        return {"success": True, "message": "Model already exists", "path": str(model_path)}
+    
+    logger.info(f"Downloading model from {download_url}...")
+    
+    try:
+        import urllib.request
+        urllib.request.urlretrieve(download_url, model_path)
+        logger.info(f"Model downloaded to {model_path}")
+        
+        # Load the model after download
+        info = load_model(str(model_path))
+        return {"success": True, "model": info}
+    except Exception as e:
+        logger.error(f"Failed to download model: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
