@@ -8,13 +8,22 @@ let pythonProcess: any = null;
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 
+const getAppPath = () => {
+  if (app.isPackaged) {
+    return path.dirname(app.getPath('exe'));
+  }
+  return path.join(__dirname, '..', '..');
+};
+
 function startPythonBackend() {
-  const backendPath = path.join(__dirname, '..', '..', 'backend', 'main.py');
+  const appPath = getAppPath();
+  const backendPath = path.join(appPath, 'backend', 'main.py');
   const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
   
   pythonProcess = spawn(pythonCmd, [backendPath], {
     stdio: 'pipe',
     shell: true,
+    cwd: path.join(appPath, 'backend'),
   });
   
   pythonProcess.stdout.on('data', (data: any) => {
@@ -31,6 +40,8 @@ function startPythonBackend() {
 }
 
 function createWindow() {
+  const appPath = getAppPath();
+  
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
@@ -49,7 +60,7 @@ function createWindow() {
     mainWindow.loadURL('http://localhost:5173');
     mainWindow.webContents.openDevTools();
   } else {
-    mainWindow.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
+    mainWindow.loadFile(path.join(appPath, 'dist', 'renderer', 'index.html'));
   }
   
   mainWindow.on('closed', () => {
@@ -100,7 +111,7 @@ ipcMain.handle('select-image', async () => {
   return null;
 });
 
-ipcMain.handle('process-image', async (_, imageData: string, filename: string) => {
+ipcMain.handle('process-image', async (_event: any, imageData: string, filename: string) => {
   try {
     const response = await fetch('http://127.0.0.1:8765/process', {
       method: 'POST',
@@ -125,7 +136,7 @@ ipcMain.handle('process-image', async (_, imageData: string, filename: string) =
   }
 });
 
-ipcMain.handle('save-image', async (_, imageData: string) => {
+ipcMain.handle('save-image', async (_event: any, imageData: string) => {
   const result = await dialog.showSaveDialog(mainWindow!, {
     filters: [
       { name: 'PNG Image', extensions: ['png'] },
