@@ -359,7 +359,20 @@ def process_image(image: Image.Image) -> Image.Image:
 async def lifespan(app: FastAPI):
     logger.info("Starting AI Background Remover API...")
     logger.info(f"Model directory: {MODEL_DIR}")
-    logger.info(f"Available models: {scan_available_models()}")
+    models = scan_available_models()
+    logger.info(f"Available models: {models}")
+    
+    # Auto-load RMBG-1.4 if it exists
+    for m in models:
+        if m.get('name') == 'model_1.4' and m.get('path'):
+            try:
+                logger.info(f"Auto-loading built-in model: {m['path']}")
+                load_model(m['path'])
+                logger.info("Built-in model loaded successfully")
+                break
+            except Exception as e:
+                logger.error(f"Failed to auto-load model: {e}")
+    
     yield
     logger.info("Shutting down...")
 

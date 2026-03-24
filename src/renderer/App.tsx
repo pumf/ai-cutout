@@ -184,6 +184,12 @@ function App() {
   const handleProcess = async () => {
     if (!originalImage) return;
     
+    if (modelStatus !== 'ready') {
+      setShowModelSelector(true);
+      alert('请先选择一个AI模型');
+      return;
+    }
+    
     setIsProcessing(true);
     try {
       const base64Data = originalImage.replace(/^data:image\/\w+;base64,/, '');
@@ -331,9 +337,11 @@ function App() {
                             加载
                           </button>
                         )}
-                        <button className="btn btn-small btn-outline" onClick={() => selectCustomModel(m.id)}>
-                          重选
-                        </button>
+                        {m.id !== '1.4' && (
+                          <button className="btn btn-small btn-outline" onClick={() => selectCustomModel(m.id)}>
+                            重选
+                          </button>
+                        )}
                       </>
                     ) : (
                       <div className="model-actions">
