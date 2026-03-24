@@ -130,9 +130,9 @@ async function createWindow() {
     mainWindow.webContents.openDevTools();
   } else {
     await startPythonBackend();
-    await startViteServer();
     await new Promise(resolve => setTimeout(resolve, 3000));
-    mainWindow.loadURL('http://localhost:5173');
+    const distPath = getDistPath();
+    mainWindow.loadFile(path.join(distPath, 'index.html'));
   }
   
   mainWindow.on('closed', () => {
@@ -229,5 +229,34 @@ ipcMain.handle('check-model-status', async () => {
     return await response.json();
   } catch (error) {
     return { loaded: false, error: 'Backend not running' };
+  }
+});
+
+ipcMain.handle('select-model', async () => {
+  const result = await dialog.showOpenDialog(mainWindow!, {
+    properties: ['openFile'],
+    filters: [
+      { name: 'AI Models', extensions: ['onnx', 'safetensors'] }
+    ]
+  });
+  
+  if (!result.canceled && result.filePaths.length > 0) {
+    const filePath = result.filePaths[0];
+    return { path: filePath, name: path.basename(filePath) };
+  }
+  return null;
+});
+
+ipcMain.handle('load-custom-model', async (_event: any, modelPath: string, modelId?: string) => {
+  try {
+    const response = await fetch('http://127.0.0.1:8765/models/load-custom', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: modelPath, model_id: modelId })
+    });
+    return await response.json();
+  } catch (error) {
+    console.error('Failed to load custom model:', error);
+    throw error;
   }
 });

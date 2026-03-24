@@ -6,4 +6,6 @@ electron_1.contextBridge.exposeInMainWorld('electronAPI', {
     processImage: (imageData, filename) => electron_1.ipcRenderer.invoke('process-image', imageData, filename),
     saveImage: (imageData) => electron_1.ipcRenderer.invoke('save-image', imageData),
     checkModelStatus: () => electron_1.ipcRenderer.invoke('check-model-status'),
+    selectModel: () => electron_1.ipcRenderer.invoke('select-model'),
+    loadCustomModel: (modelPath, modelId) => electron_1.ipcRenderer.invoke('load-custom-model', modelPath, modelId),
 });

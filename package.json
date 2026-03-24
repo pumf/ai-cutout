@@ -37,10 +37,10 @@
       "output": "release"
     },
     "files": [
-      "dist/**/*",
+      "dist/main/**/*",
+      "dist/renderer/**/*",
       "package.json",
-      "backend/**/*",
-      "node_modules/**/*"
+      "backend/**/*"
     ],
     "extraResources": [
       {

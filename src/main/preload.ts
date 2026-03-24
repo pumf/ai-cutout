@@ -6,4 +6,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('process-image', imageData, filename),
   saveImage: (imageData: string) => ipcRenderer.invoke('save-image', imageData),
   checkModelStatus: () => ipcRenderer.invoke('check-model-status'),
+  selectModel: () => ipcRenderer.invoke('select-model'),
+  loadCustomModel: (modelPath: string, modelId?: string) => ipcRenderer.invoke('load-custom-model', modelPath, modelId),
 });

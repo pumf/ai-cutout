@@ -8,8 +8,14 @@ from pathlib import Path
 from typing import Optional, Dict, Any
 from contextlib import asynccontextmanager
 
-import torch
-from torchvision import transforms
+try:
+    import torch
+    from torchvision import transforms
+    HAS_TORCH = True
+except ImportError:
+    HAS_TORCH = False
+    transforms = None
+
 from PIL import Image
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -46,7 +52,7 @@ FIXED_MODELS = [
         "name": "RMBG-2.0",
         "display_name": "RMBG-2.0 (效果好)",
         "expected_paths": ["2.0/model.onnx", "2.0/model.safetensors", "model.safetensors"],
-        "type": "safetensors",
+        "type": "onnx",
         "download_url": "https://modelscope.cn/models/AI-ModelScope/RMBG-2.0/resolve/master/onnx/model.onnx"
     }
 ]
@@ -121,7 +127,10 @@ def load_birefnet_model(model_path: Path):
     """Load BiRefNet model from safetensors file"""
     global model, transform_image, device
     
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    if HAS_TORCH and torch.cuda.is_available():
+        device = 'cuda'
+    else:
+        device = 'cpu'
     logger.info(f"Using device: {device}")
     
     model_files_dir = str(MODEL_DIR)
@@ -170,7 +179,10 @@ def load_onnx_model(model_path: Path):
     
     import onnxruntime as ort
     
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    if HAS_TORCH and torch.cuda.is_available():
+        device = 'cuda'
+    else:
+        device = 'cpu'
     logger.info(f"Using device: {device}")
     
     sess_options = ort.SessionOptions()
@@ -237,7 +249,7 @@ def unload_model():
     transform_image = None
     current_model_info = {"name": None, "type": None, "path": None, "loaded": False}
     
-    if torch.cuda.is_available():
+    if HAS_TORCH and torch.cuda.is_available():
         torch.cuda.empty_cache()
     
     logger.info("Model unloaded")
@@ -456,19 +468,37 @@ async def load_custom_model_endpoint(request: Request):
     """Load a custom model from user provided path"""
     body = await request.json()
     model_path = body.get('path')
+    model_id = body.get('model_id', 'custom')
     
     if not model_path:
         raise HTTPException(status_code=400, detail="Model path is required")
     
-    path = Path(model_path)
-    if not path.exists():
+    source_path = Path(model_path)
+    if not source_path.exists():
         raise HTTPException(status_code=404, detail=f"Model file not found: {model_path}")
     
-    if path.suffix not in ['.safetensors', '.onnx']:
+    if source_path.suffix not in ['.safetensors', '.onnx']:
         raise HTTPException(status_code=400, detail="Unsupported model format")
     
     try:
-        info = load_model(str(path))
+        # Copy model to model_files directory based on model_id
+        target_dir = MODEL_DIR / model_id
+        target_dir.mkdir(parents=True, exist_ok=True)
+        
+        target_path = target_dir / f"model{source_path.suffix}"
+        
+        # Remove existing file if present
+        if target_path.exists():
+            target_path.unlink()
+        
+        # Copy the file
+        import shutil
+        shutil.copy2(str(source_path), str(target_path))
+        
+        logger.info(f"Copied custom model to {target_path}")
+        
+        # Load the model from new location
+        info = load_model(str(target_path))
         return {"success": True, "model": info}
     except Exception as e:
         logger.error(f"Failed to load custom model: {e}")

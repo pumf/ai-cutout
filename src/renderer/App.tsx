@@ -111,18 +111,30 @@ function App() {
     }
   };
 
-  const selectCustomModel = async () => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = '.onnx,.safetensors';
-    
-    input.onchange = async (e) => {
-      const file = (e.target as HTMLInputElement).files?.[0];
-      if (!file) return;
-      alert(`已选择: ${file.name}\n\n在打包应用中，文件会被复制到模型目录。\n当前为Web模式，请将模型文件放入 model_files 目录后刷新页面。`);
-    };
-    
-    input.click();
+  const selectCustomModel = async (modelId: string) => {
+    if (window.electronAPI) {
+      setIsLoadingModel(true);
+      try {
+        const result = await window.electronAPI.selectModel();
+        if (result) {
+          const loadResult = await window.electronAPI.loadCustomModel(result.path, modelId);
+          if (loadResult.success) {
+            setCurrentModel(loadResult.model);
+            setModelStatus('ready');
+            loadAvailableModels();
+          } else {
+            alert('加载模型失败: ' + (loadResult.detail || '未知错误'));
+          }
+        }
+      } catch (e) {
+        console.error('Failed to load custom model:', e);
+        alert('加载模型失败');
+      } finally {
+        setIsLoadingModel(false);
+      }
+    } else {
+      alert('在打包应用中，请点击"选择文件"来选择自定义模型文件');
+    }
   };
 
   const downloadModel = async (modelId: string) => {
@@ -319,13 +331,13 @@ function App() {
                             加载
                           </button>
                         )}
-                        <button className="btn btn-small btn-outline" onClick={selectCustomModel}>
+                        <button className="btn btn-small btn-outline" onClick={() => selectCustomModel(m.id)}>
                           重选
                         </button>
                       </>
                     ) : (
                       <div className="model-actions">
-                        <button className="btn btn-small" onClick={selectCustomModel}>
+                        <button className="btn btn-small" onClick={() => selectCustomModel(m.id)}>
                           选择文件
                         </button>
                         {m.download_url && (
