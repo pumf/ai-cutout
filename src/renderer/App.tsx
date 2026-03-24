@@ -482,7 +482,7 @@ function App() {
       </main>
 
       <footer className="footer">
-        <span>使用 RMBG-2.0 本地AI模型 | 保护隐私 · 离线可用</span>
+        <span>使用 RMBG 本地AI模型 | 保护隐私 · 离线可用</span>
       </footer>
     </div>
   );

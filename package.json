@@ -80,7 +80,8 @@
       "target": [
         "dmg"
       ],
-      "category": "public.app-category.graphics-design"
+      "category": "public.app-category.graphics-design",
+      "icon": "logo.png"
     },
     "asar": false
   }
