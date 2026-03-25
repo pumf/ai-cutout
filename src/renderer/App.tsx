@@ -298,6 +298,14 @@ function App() {
           <span className="titlebar-title">小飞AI抠图</span>
         </div>
         <div className="titlebar-controls">
+          <button className="titlebar-model" onClick={() => setShowModelSelector(true)}>
+            <span>🤖</span>
+            <span>{currentModel?.display_name || currentModel?.name || '选择模型'}</span>
+          </button>
+          <div className={`titlebar-status ${modelStatus}`}>
+            <span className="status-dot"></span>
+            <span>{modelStatus === 'ready' ? '已加载' : '未加载'}</span>
+          </div>
           <button className="titlebar-btn titlebar-btn-help" onClick={() => setShowHelp(true)} title="使用说明">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <circle cx="12" cy="12" r="10"/>
@@ -312,14 +320,6 @@ function App() {
           <span className="logo-icon">✂️</span>
         </div>
         <div className="header-actions">
-          <button className="btn btn-model" onClick={() => setShowModelSelector(true)}>
-            <span className="btn-icon">🤖</span>
-            {currentModel?.display_name || currentModel?.name || '选择模型'}
-          </button>
-          <div className={`model-status ${modelStatus}`}>
-            <span className="status-dot"></span>
-            <span>{modelStatus === 'ready' ? '已加载' : '未加载'}</span>
-          </div>
         </div>
       </header>
 
