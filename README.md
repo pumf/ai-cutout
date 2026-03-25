@@ -10,9 +10,9 @@
 
 | 平台 | 下载地址 |
 |------|----------|
-| macOS Apple Silicon (M1/M2/M3) | [小飞AI抠图-1.0.0-arm64.dmg](https://github.com/pumf/ai-cutout/releases/download/v1.0.0/%E5%B0%8F%E9%A3%9EAI%E6%8A%A0%E5%9B%BE-1.0.0-arm64.dmg) |
-| macOS Intel | [小飞AI抠图-1.0.0-Intel.dmg](https://github.com/pumf/ai-cutout/releases/download/v1.0.0/%E5%B0%8F%E9%A3%9EAI%E6%8A%A0%E5%9B%BE-1.0.0-Intel.dmg) |
-| Windows | [小飞AI抠图 Setup 1.0.0.exe](https://github.com/pumf/ai-cutout/releases/download/v1.0.0/%E5%B0%8F%E9%A3%9EAI%E6%8A%A0%E5%9B%BE%20Setup%201.0.0.exe) |
+| macOS Apple Silicon (M1/M2/M3) | [小飞AI抠图-1.0.0-arm64.dmg](https://github.com/pumf/ai-cutout/releases/download/v1.0.0/AI.-1.0.0-arm64.dmg) |
+| macOS Intel | [小飞AI抠图-1.0.0-Intel.dmg](https://github.com/pumf/ai-cutout/releases/download/v1.0.0/AI.-1.0.0-Intel.dmg) |
+| Windows | [小飞AI抠图 Setup 1.0.0.exe](https://github.com/pumf/ai-cutout/releases/download/v1.0.0/AI.Setup.1.0.0.exe) |
 
 ## 软件介绍
 
