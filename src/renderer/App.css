@@ -87,6 +87,31 @@ body {
   transition: all 0.2s;
 }
 
+.btn-help-inline {
+  margin-left: 12px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--text-secondary);
+  border: none;
+  color: white;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.btn-help-inline:hover {
+  background: var(--primary-color);
+}
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
 .btn-help:hover {
   background: var(--primary-color);
   color: white;
@@ -449,6 +474,22 @@ body {
 
 .help-section:last-child {
   border-bottom: none;
+}
+
+.help-intro {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+}
+
+.help-intro h4 {
+  color: white;
+  font-size: 16px;
+}
+
+.help-intro p {
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 14px;
+  line-height: 1.6;
 }
 
 .help-section h4 {

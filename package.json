@@ -74,6 +74,10 @@
       {
         "from": "node_modules/rollup",
         "to": "node_modules/rollup"
+      },
+      {
+        "from": "qrcode.jpg",
+        "to": "qrcode.jpg"
       }
     ],
     "mac": {
