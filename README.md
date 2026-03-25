@@ -26,6 +26,14 @@
 - 💻 **跨平台** - 支持 macOS、Windows、Linux
 - 🎨 **多种格式** - 支持 PNG、JPG、WebP 等常见图片格式
 
+## 效果展示
+
+| 原图 | 抠图后 |
+|------|--------|
+| ![原图1](resource/demo1.png) | 智能识别背景并移除 |
+| ![原图2](resource/demo2.png) | 精准分割主体 |
+| ![原图3](resource/demo3.png) | 保持边缘细节 |
+
 ## 技术方案
 
 ### 技术栈
