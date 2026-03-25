@@ -38,22 +38,19 @@ body {
 /* Title Bar */
 .titlebar {
   display: flex;
-  justify-content: space-between;
+  justify-content: center;
   align-items: center;
   height: 38px;
-  background: #1e1e1e;
   -webkit-app-region: drag;
-  padding-left: 16px;
 }
 
 .titlebar-drag {
-  flex: 1;
   display: flex;
   align-items: center;
 }
 
 .titlebar-title {
-  color: #fff;
+  color: var(--text-primary);
   font-size: 13px;
   font-weight: 500;
 }
