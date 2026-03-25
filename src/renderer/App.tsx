@@ -295,8 +295,8 @@ function App() {
     <div className="app">
       <div className="titlebar">
         <div className="titlebar-drag">
-          <span className="titlebar-icon">✂️</span>
-          <span className="titlebar-title">小飞AI抠图</span>
+          <img className="titlebar-logo" src="./logo.png" alt="logo" />
+          <span className="titlebar-title">小飞AI抠图 1.0</span>
         </div>
         <div className="titlebar-controls">
           <button className="titlebar-model" onClick={() => setShowModelSelector(true)}>

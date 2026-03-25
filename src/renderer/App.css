@@ -67,6 +67,13 @@ body {
   margin-right: 6px;
 }
 
+.titlebar-logo {
+  width: 20px;
+  height: 20px;
+  margin-right: 6px;
+  border-radius: 4px;
+}
+
 .titlebar-controls {
   display: flex;
   -webkit-app-region: no-drag;
