@@ -64,8 +64,12 @@
         "to": "dist/renderer"
       },
       {
-        "from": "qrcode.jpg",
-        "to": "qrcode.jpg"
+        "from": "resource/qrcode.jpg",
+        "to": "resource/qrcode.jpg"
+      },
+      {
+        "from": "resource/logo.png",
+        "to": "resource/logo.png"
       }
     ],
     "mac": {
@@ -73,13 +77,13 @@
         "dmg"
       ],
       "category": "public.app-category.graphics-design",
-      "icon": "logo.png"
+      "icon": "resource/logo.png"
     },
     "win": {
       "target": [
         "nsis"
       ],
-      "icon": "logo.png"
+      "icon": "resource/logo.png"
     },
     "linux": {
       "target": [
