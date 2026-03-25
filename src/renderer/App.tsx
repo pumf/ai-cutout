@@ -404,6 +404,17 @@ function App() {
               <div className="help-section">
                 <h4>🔄 切换模型</h4>
                 <p>点击右上角的模型名称可切换 AI 模型。RMBG-1.4 速度快，RMBG-2.0 效果更好。</p>
+                <p style={{marginTop: '8px'}}>
+                  <strong>RMBG-2.0 下载地址：</strong>
+                  <a 
+                    href="https://modelscope.cn/models/AI-ModelScope/RMBG-2.0/resolve/master/onnx/model.onnx" 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    style={{color: '#3b82f6', marginLeft: '8px'}}
+                  >
+                    点击下载
+                  </a>
+                </p>
               </div>
               <div className="help-section">
                 <h4>🖱️ 图片操作</h4>
