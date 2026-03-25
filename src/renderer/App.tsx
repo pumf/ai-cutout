@@ -295,6 +295,7 @@ function App() {
     <div className="app">
       <div className="titlebar">
         <div className="titlebar-drag">
+          <span className="titlebar-icon">✂️</span>
           <span className="titlebar-title">小飞AI抠图</span>
         </div>
         <div className="titlebar-controls">
@@ -315,13 +316,6 @@ function App() {
           </button>
         </div>
       </div>
-      <header className="header">
-        <div className="logo">
-          <span className="logo-icon">✂️</span>
-        </div>
-        <div className="header-actions">
-        </div>
-      </header>
 
       {showModelSelector && (
         <div className="modal-overlay" onClick={() => setShowModelSelector(false)}>

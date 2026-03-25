@@ -38,22 +38,33 @@ body {
 /* Title Bar */
 .titlebar {
   display: flex;
-  justify-content: space-between;
+  justify-content: center;
   align-items: center;
   height: 38px;
   -webkit-app-region: drag;
-  padding: 0 16px;
+  position: relative;
 }
 
 .titlebar-drag {
+  position: absolute;
+  left: 0;
+  right: 0;
   display: flex;
+  justify-content: center;
   align-items: center;
+  pointer-events: none;
 }
 
 .titlebar-title {
   color: var(--text-primary);
   font-size: 13px;
   font-weight: 500;
+  pointer-events: auto;
+}
+
+.titlebar-icon {
+  font-size: 16px;
+  margin-right: 6px;
 }
 
 .titlebar-controls {
@@ -61,6 +72,8 @@ body {
   -webkit-app-region: no-drag;
   align-items: center;
   gap: 8px;
+  position: absolute;
+  right: 16px;
 }
 
 .titlebar-model {
