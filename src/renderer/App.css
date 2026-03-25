@@ -35,6 +35,57 @@ body {
   height: 100vh;
 }
 
+/* Title Bar */
+.titlebar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  height: 38px;
+  background: #1e1e1e;
+  -webkit-app-region: drag;
+  padding-left: 16px;
+}
+
+.titlebar-drag {
+  flex: 1;
+  display: flex;
+  align-items: center;
+}
+
+.titlebar-title {
+  color: #fff;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.titlebar-controls {
+  display: flex;
+  -webkit-app-region: no-drag;
+}
+
+.titlebar-btn {
+  width: 46px;
+  height: 38px;
+  border: none;
+  background: transparent;
+  color: #ccc;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s;
+}
+
+.titlebar-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+.titlebar-btn-close:hover {
+  background: #ff5f57;
+  color: #fff;
+}
+
 /* Header */
 .header {
   display: flex;
@@ -477,17 +528,16 @@ body {
 }
 
 .help-intro {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
+  background: var(--bg-color);
 }
 
 .help-intro h4 {
-  color: white;
+  color: var(--primary-color);
   font-size: 16px;
 }
 
 .help-intro p {
-  color: rgba(255, 255, 255, 0.9);
+  color: var(--text-secondary);
   font-size: 14px;
   line-height: 1.6;
 }

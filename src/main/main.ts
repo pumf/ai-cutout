@@ -107,6 +107,8 @@ async function createWindow() {
     height: 800,
     minWidth: 900,
     minHeight: 600,
+    frame: false,
+    titleBarStyle: 'hidden',
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -245,6 +247,22 @@ ipcMain.handle('select-model', async () => {
     return { path: filePath, name: path.basename(filePath) };
   }
   return null;
+});
+
+ipcMain.handle('window-minimize', () => {
+  mainWindow?.minimize();
+});
+
+ipcMain.handle('window-maximize', () => {
+  if (mainWindow?.isMaximized()) {
+    mainWindow.unmaximize();
+  } else {
+    mainWindow?.maximize();
+  }
+});
+
+ipcMain.handle('window-close', () => {
+  mainWindow?.close();
 });
 
 ipcMain.handle('load-custom-model', async (_event: any, modelPath: string, modelId?: string) => {

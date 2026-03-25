@@ -123,6 +123,8 @@ async function createWindow() {
         height: 800,
         minWidth: 900,
         minHeight: 600,
+        frame: false,
+        titleBarStyle: 'hidden',
         webPreferences: {
             nodeIntegration: false,
             contextIsolation: true,
@@ -248,6 +250,20 @@ electron_1.ipcMain.handle('select-model', async () => {
         return { path: filePath, name: path.basename(filePath) };
     }
     return null;
+});
+electron_1.ipcMain.handle('window-minimize', () => {
+    mainWindow?.minimize();
+});
+electron_1.ipcMain.handle('window-maximize', () => {
+    if (mainWindow?.isMaximized()) {
+        mainWindow.unmaximize();
+    }
+    else {
+        mainWindow?.maximize();
+    }
+});
+electron_1.ipcMain.handle('window-close', () => {
+    mainWindow?.close();
 });
 electron_1.ipcMain.handle('load-custom-model', async (_event, modelPath, modelId) => {
     try {

@@ -293,13 +293,39 @@ function App() {
 
   return (
     <div className="app">
+      <div className="titlebar">
+        <div className="titlebar-drag">
+          <span className="titlebar-title">小飞AI抠图</span>
+        </div>
+        <div className="titlebar-controls">
+          <button className="titlebar-btn" onClick={() => setShowHelp(true)} title="使用说明">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="12" cy="12" r="10"/>
+              <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
+              <line x1="12" y1="17" x2="12.01" y2="17"/>
+            </svg>
+          </button>
+          <button className="titlebar-btn" onClick={() => window.electronAPI?.windowMinimize()} title="最小化">
+            <svg width="12" height="12" viewBox="0 0 12 12">
+              <rect y="5" width="12" height="2" fill="currentColor"/>
+            </svg>
+          </button>
+          <button className="titlebar-btn" onClick={() => window.electronAPI?.windowMaximize()} title="最大化">
+            <svg width="12" height="12" viewBox="0 0 12 12">
+              <rect x="1" y="1" width="10" height="10" fill="none" stroke="currentColor" strokeWidth="1.5"/>
+            </svg>
+          </button>
+          <button className="titlebar-btn titlebar-btn-close" onClick={() => window.electronAPI?.windowClose()} title="关闭">
+            <svg width="12" height="12" viewBox="0 0 12 12">
+              <line x1="1" y1="1" x2="11" y2="11" stroke="currentColor" strokeWidth="1.5"/>
+              <line x1="11" y1="1" x2="1" y2="11" stroke="currentColor" strokeWidth="1.5"/>
+            </svg>
+          </button>
+        </div>
+      </div>
       <header className="header">
         <div className="logo">
           <span className="logo-icon">✂️</span>
-          <span className="logo-text">小飞AI抠图</span>
-          <button className="btn btn-help-inline" onClick={() => setShowHelp(true)} title="使用说明">
-            <span>?</span>
-          </button>
         </div>
         <div className="header-actions">
           <button className="btn btn-model" onClick={() => setShowModelSelector(true)}>
@@ -409,7 +435,7 @@ function App() {
                 <h4>📱 联系我们</h4>
                 <p>如有问题或建议，欢迎加入微信群交流：</p>
                 <div className="wechat-qr">
-                  <img src="/qrcode.jpg" alt="微信群二维码" />
+                  <img src="./qrcode.jpg" alt="微信群二维码" />
                   <span>扫码添加微信好友，备注"抠图"入群</span>
                 </div>
               </div>

@@ -8,4 +8,7 @@ electron_1.contextBridge.exposeInMainWorld('electronAPI', {
     checkModelStatus: () => electron_1.ipcRenderer.invoke('check-model-status'),
     selectModel: () => electron_1.ipcRenderer.invoke('select-model'),
     loadCustomModel: (modelPath, modelId) => electron_1.ipcRenderer.invoke('load-custom-model', modelPath, modelId),
+    windowMinimize: () => electron_1.ipcRenderer.invoke('window-minimize'),
+    windowMaximize: () => electron_1.ipcRenderer.invoke('window-maximize'),
+    windowClose: () => electron_1.ipcRenderer.invoke('window-close'),
 });
