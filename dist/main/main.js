@@ -127,9 +127,7 @@ async function createWindow() {
         webPreferences: {
             nodeIntegration: false,
             contextIsolation: true,
-            preload: electron_1.app.isPackaged
-                ? path.join(process.resourcesPath, 'app', 'dist', 'main', 'preload.js')
-                : path.join(__dirname, 'preload.js'),
+            preload: path.join(__dirname, 'preload.js'),
         },
         title: '小飞AI抠图',
         backgroundColor: '#ffffff',
