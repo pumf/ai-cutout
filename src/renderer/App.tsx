@@ -9,6 +9,7 @@ function App() {
   const [currentModel, setCurrentModel] = useState<{name: string; display_name?: string; path: string} | null>(null);
   const [availableModels, setAvailableModels] = useState<{id: string; name: string; display_name?: string; path: string | null; type: string; size_mb: number; exists: boolean; download_url?: string}[]>([]);
   const [showModelSelector, setShowModelSelector] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
   const [isLoadingModel, setIsLoadingModel] = useState(false);
   const [dragActive, setDragActive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -298,6 +299,9 @@ function App() {
           <span className="logo-text">小飞AI抠图</span>
         </div>
         <div className="header-actions">
+          <button className="btn btn-help" onClick={() => setShowHelp(true)} title="使用说明">
+            <span>?</span>
+          </button>
           <button className="btn btn-model" onClick={() => setShowModelSelector(true)}>
             <span className="btn-icon">🤖</span>
             {currentModel?.display_name || currentModel?.name || '选择模型'}
@@ -365,6 +369,47 @@ function App() {
               </div>
             </div>
             {isLoadingModel && <div className="modal-loading">加载模型中...</div>}
+          </div>
+        </div>
+      )}
+
+      {showHelp && (
+        <div className="modal-overlay" onClick={() => setShowHelp(false)}>
+          <div className="modal modal-help" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>使用说明</h3>
+              <button className="modal-close" onClick={() => setShowHelp(false)}>×</button>
+            </div>
+            <div className="modal-content help-content">
+              <div className="help-section">
+                <h4>📁 选择图片</h4>
+                <p>点击"选择图片"按钮，或直接将图片拖拽到窗口中。支持 PNG、JPG、WebP 格式。</p>
+              </div>
+              <div className="help-section">
+                <h4>🤖 AI 抠图</h4>
+                <p>点击"AI 抠图"按钮，AI 将自动识别并去除图片背景。首次使用需要选择 AI 模型。</p>
+              </div>
+              <div className="help-section">
+                <h4>💾 保存结果</h4>
+                <p>处理完成后，点击"保存图片"按钮将结果保存到本地。</p>
+              </div>
+              <div className="help-section">
+                <h4>🔄 切换模型</h4>
+                <p>点击右上角的模型名称可切换 AI 模型。RMBG-1.4 速度快，RMBG-2.0 效果更好。</p>
+              </div>
+              <div className="help-section">
+                <h4>🖱️ 图片操作</h4>
+                <p>鼠标滚轮可缩放图片，按住鼠标左键可拖拽移动图片位置。</p>
+              </div>
+              <div className="help-section help-wechat">
+                <h4>📱 联系我们</h4>
+                <p>如有问题或建议，欢迎加入微信群交流：</p>
+                <div className="wechat-qr">
+                  <img src="data:image/png;base64,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" alt="微信群二维码" />
+                  <span>扫码添加微信好友，备注"抠图"入群</span>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}

@@ -68,7 +68,29 @@ body {
 .header-actions {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 12px;
+}
+
+.btn-help {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--surface-color);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.btn-help:hover {
+  background: var(--primary-color);
+  color: white;
+  border-color: var(--primary-color);
 }
 
 .model-status {
@@ -409,6 +431,62 @@ body {
   text-align: center;
   color: var(--primary-color);
   background: var(--bg-color);
+}
+
+.modal-help {
+  max-width: 500px;
+  max-height: 80vh;
+}
+
+.help-content {
+  padding: 0 !important;
+}
+
+.help-section {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.help-section:last-child {
+  border-bottom: none;
+}
+
+.help-section h4 {
+  font-size: 15px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: var(--text-primary);
+}
+
+.help-section p {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+.help-wechat {
+  text-align: center;
+  background: var(--bg-color);
+}
+
+.wechat-qr {
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.wechat-qr img {
+  width: 150px;
+  height: 150px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+}
+
+.wechat-qr span {
+  font-size: 12px;
+  color: var(--text-secondary);
 }
 
 .no-models {
