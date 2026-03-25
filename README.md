@@ -5,6 +5,8 @@
 ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C-Linux-blue)
 ![Version](https://img.shields.io/badge/version-1.0.0-green)
 ![License](https://img.shields.io/badge/license-MIT-yellow)
+![GitHub stars](https://img.shields.io/github/stars/pumf/ai-cutout)
+![GitHub forks](https://img.shields.io/github/forks/pumf/ai-cutout)
 
 ## 下载
 
