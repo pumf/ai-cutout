@@ -9,8 +9,9 @@
     "dev": "concurrently \"npm run dev:renderer\" \"npm run dev:electron\"",
     "dev:renderer": "vite",
     "dev:electron": "tsc -p tsconfig.main.json && electron .",
-    "build": "npm run build:renderer && npm run build:electron",
+    "build": "npm run build:renderer && npm run copy-images && npm run build:electron",
     "build:renderer": "vite build",
+    "copy-images": "cp resource/qrcode.jpg resource/grcode.jpg dist/renderer/",
     "build:electron": "tsc -p tsconfig.main.json",
     "package": "npm run build && electron-builder --mac",
     "package:tauri": "npm run build:renderer && npx tauri build",
@@ -66,6 +67,10 @@
       {
         "from": "resource/qrcode.jpg",
         "to": "resource/qrcode.jpg"
+      },
+      {
+        "from": "resource/grcode.jpg",
+        "to": "resource/grcode.jpg"
       },
       {
         "from": "resource/logo.png",

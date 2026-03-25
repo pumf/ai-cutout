@@ -620,21 +620,40 @@ body {
 .wechat-qr {
   margin-top: 16px;
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
+  justify-content: center;
+  gap: 32px;
 }
 
-.wechat-qr img {
-  width: 150px;
-  height: 150px;
+.qr-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.qr-item img {
+  width: 120px;
+  height: 120px;
   border-radius: 8px;
   border: 1px solid var(--border-color);
 }
 
-.wechat-qr span {
+.qr-item span {
   font-size: 12px;
   color: var(--text-secondary);
+}
+
+.faq-item {
+  margin-bottom: 16px;
+  text-align: left;
+}
+
+.faq-item p {
+  margin: 4px 0;
+}
+
+.faq-item strong {
+  color: var(--text-primary);
 }
 
 .no-models {

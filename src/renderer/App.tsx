@@ -420,12 +420,37 @@ function App() {
                 <h4>🖱️ 图片操作</h4>
                 <p>鼠标滚轮可缩放图片，按住鼠标左键可拖拽移动图片位置。</p>
               </div>
+              <div className="help-section">
+                <h4>❓ 常见问题</h4>
+                <div className="faq-item">
+                  <p><strong>Q: 首次运行需要联网吗？</strong></p>
+                  <p>A: 不需要，软件完全本地运行。首次启动时会自动加载内置的AI模型。</p>
+                </div>
+                <div className="faq-item">
+                  <p><strong>Q: 支持批量处理吗？</strong></p>
+                  <p>A: 目前版本支持单张图片处理。</p>
+                </div>
+                <div className="faq-item">
+                  <p><strong>Q: 为什么处理速度较慢？</strong></p>
+                  <p>A: 处理速度取决于电脑配置。推荐使用支持AI加速的CPU或GPU。</p>
+                </div>
+                <div className="faq-item">
+                  <p><strong>Q: 如何切换AI模型？</strong></p>
+                  <p>A: 点击右上角的模型名称，在弹出的模型选择界面中可以切换或加载自定义模型。</p>
+                </div>
+              </div>
               <div className="help-section help-wechat">
                 <h4>📱 联系我们</h4>
                 <p>如有问题或建议，欢迎加入微信群交流：</p>
                 <div className="wechat-qr">
-                  <img src="./qrcode.jpg" alt="微信群二维码" />
-                  <span>扫码添加微信好友，备注"抠图"入群</span>
+                  <div className="qr-item">
+                    <img src="./grcode.jpg" alt="个人微信二维码" />
+                    <span>个人微信</span>
+                  </div>
+                  <div className="qr-item">
+                    <img src="./qrcode.jpg" alt="微信群二维码" />
+                    <span>扫码入群</span>
+                  </div>
                 </div>
               </div>
             </div>
