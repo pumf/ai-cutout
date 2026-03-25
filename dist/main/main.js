@@ -49,7 +49,7 @@ const getAppPath = () => {
 };
 const getDistPath = () => {
     if (electron_1.app.isPackaged) {
-        return path.join(process.resourcesPath, 'app', 'dist', 'renderer');
+        return path.join(process.resourcesPath, 'dist', 'renderer');
     }
     return path.join(getAppPath(), 'dist', 'renderer');
 };

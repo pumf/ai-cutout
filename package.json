@@ -1,7 +1,7 @@
 {
   "name": "xiaofei-background-remover",
   "version": "1.0.0",
-  "description": "AI背景去除工具 - 使用本地RMBG-2.0模型",
+  "description": "AI背景去除工具 - 使用本地RMBG模型",
   "main": "dist/main/main.js",
   "author": "小飞",
   "license": "MIT",
@@ -13,9 +13,13 @@
     "build:renderer": "vite build",
     "build:electron": "tsc -p tsconfig.main.json",
     "package": "npm run build && electron-builder --mac",
+    "package:tauri": "npm run build:renderer && npx tauri build",
     "start": "electron ."
   },
   "dependencies": {
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
+    "onnxruntime-node": "^1.24.3",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
   },
@@ -60,22 +64,6 @@
         "to": "dist/renderer"
       },
       {
-        "from": "node_modules/vite",
-        "to": "node_modules/vite"
-      },
-      {
-        "from": "node_modules/@vitejs",
-        "to": "node_modules/@vitejs"
-      },
-      {
-        "from": "node_modules/esbuild",
-        "to": "node_modules/esbuild"
-      },
-      {
-        "from": "node_modules/rollup",
-        "to": "node_modules/rollup"
-      },
-      {
         "from": "qrcode.jpg",
         "to": "qrcode.jpg"
       }
@@ -87,6 +75,24 @@
       "category": "public.app-category.graphics-design",
       "icon": "logo.png"
     },
-    "asar": false
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "logo.png"
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "icon": "logo.png"
+    },
+    "asar": {
+      "smartUnpack": false
+    },
+    "electronLanguages": [
+      "zh_CN",
+      "en"
+    ]
   }
 }
