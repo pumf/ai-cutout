@@ -361,7 +361,6 @@ body {
   align-items: center;
   gap: 12px;
   padding: 40px;
-  border: 2px dashed var(--border-color);
   border-radius: var(--radius-lg);
   transition: all 0.2s;
 }
