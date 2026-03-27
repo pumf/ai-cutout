@@ -44,7 +44,7 @@ function App() {
   const originalCanvasRef = useRef<HTMLCanvasElement>(null);
   const lastPosRef = useRef<{ x: number; y: number } | null>(null);
 
-  // Handle zoom with mouse position as center
+  // Handle zoom with mouse position as anchor point - keep the point visually stationary
   const handleZoom = useCallback((e: WheelEvent, panelRef: React.RefObject<HTMLDivElement>) => {
     e.preventDefault();
     const delta = e.deltaY > 0 ? 0.9 : 1.1;
@@ -52,14 +52,25 @@ function App() {
     
     if (panelRef.current) {
       const rect = panelRef.current.getBoundingClientRect();
-      // Mouse position relative to panel center
-      const mouseX = e.clientX - rect.left - rect.width / 2;
-      const mouseY = e.clientY - rect.top - rect.height / 2;
+      // Mouse position relative to panel
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
       
-      // Calculate offset to keep mouse position stable
-      const scaleRatio = newScale / scale;
-      setTranslateX(translateX + mouseX * (1 - scaleRatio));
-      setTranslateY(translateY + mouseY * (1 - scaleRatio));
+      // Calculate the world coordinate of the mouse position before zoom
+      // worldX = (mouseX - panelCenterX - translateX) / scale
+      const panelCenterX = rect.width / 2;
+      const panelCenterY = rect.height / 2;
+      const worldX = (mouseX - panelCenterX - translateX) / scale;
+      const worldY = (mouseY - panelCenterY - translateY) / scale;
+      
+      // After zoom, we want the same world coordinate to be at the same screen position
+      // mouseX = panelCenterX + translateX' + worldX * newScale
+      // translateX' = mouseX - panelCenterX - worldX * newScale
+      const newTranslateX = mouseX - panelCenterX - worldX * newScale;
+      const newTranslateY = mouseY - panelCenterY - worldY * newScale;
+      
+      setTranslateX(newTranslateX);
+      setTranslateY(newTranslateY);
     }
     
     setScale(newScale);
