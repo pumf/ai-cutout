@@ -13,17 +13,35 @@ function App() {
   const [isLoadingModel, setIsLoadingModel] = useState(false);
   const [dragActive, setDragActive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  
+
   const [scale, setScale] = useState(1);
   const [translateX, setTranslateX] = useState(0);
   const [translateY, setTranslateY] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
   const [startPos, setStartPos] = useState({ x: 0, y: 0 });
   const [startTranslate, setStartTranslate] = useState({ x: 0, y: 0 });
-  
+
+  // Edit mode states
+  const [editMode, setEditMode] = useState<'none' | 'erase' | 'restore'>('none');
+  const [brushSize, setBrushSize] = useState(20);
+  const [isDrawing, setIsDrawing] = useState(false);
+  const [maskHistory, setMaskHistory] = useState<ImageData[]>([]);
+  const [historyIndex, setHistoryIndex] = useState(-1);
+  const [cursorStyle, setCursorStyle] = useState<string>('default');
+  const [virtualCursorPos, setVirtualCursorPos] = useState<{ x: number; y: number } | null>(null);
+  const [activePanel, setActivePanel] = useState<'original' | 'result' | null>(null);
+  const [isOriginalDragging, setIsOriginalDragging] = useState(false);
+  const [originalStartPos, setOriginalStartPos] = useState({ x: 0, y: 0 });
+  const [originalStartTranslate, setOriginalStartTranslate] = useState({ x: 0, y: 0 });
+
   const originalPanelRef = useRef<HTMLDivElement>(null);
   const resultPanelRef = useRef<HTMLDivElement>(null);
   const originalImgRef = useRef<HTMLImageElement>(null);
+  const outputCanvasRef = useRef<HTMLCanvasElement>(null);
+  const processedCanvasRef = useRef<HTMLCanvasElement>(null);
+  const maskCanvasRef = useRef<HTMLCanvasElement>(null);
+  const originalCanvasRef = useRef<HTMLCanvasElement>(null);
+  const lastPosRef = useRef<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
     const handleWheel = (e: WheelEvent) => {
@@ -174,9 +192,34 @@ function App() {
     if (file) {
       const reader = new FileReader();
       reader.onload = (event) => {
-        setOriginalImage(event.target?.result as string);
+        const imageUrl = event.target?.result as string;
+        setOriginalImage(imageUrl);
         setProcessedImage(null);
-        resetTransform();
+        
+        // Reset edit mode when selecting new image
+        setEditMode('none');
+        
+        // Auto-fit image to panel - use cover mode to fill the panel
+        const img = new Image();
+        img.onload = () => {
+          const panel = originalPanelRef.current;
+          if (panel) {
+            const panelW = panel.clientWidth;
+            const panelH = panel.clientHeight;
+            const imgW = img.naturalWidth;
+            const imgH = img.naturalHeight;
+            
+            // Calculate scale to cover the entire panel
+            const scaleW = panelW / imgW;
+            const scaleH = panelH / imgH;
+            const coverScale = Math.max(scaleW, scaleH);
+            
+            setScale(coverScale);
+            setTranslateX(0);
+            setTranslateY(0);
+          }
+        };
+        img.src = imageUrl;
       };
       reader.readAsDataURL(file);
     }
@@ -226,14 +269,39 @@ function App() {
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setDragActive(false);
-    
+
     const file = e.dataTransfer.files[0];
     if (file && file.type.startsWith('image/')) {
       const reader = new FileReader();
       reader.onload = (event) => {
-        setOriginalImage(event.target?.result as string);
+        const imageUrl = event.target?.result as string;
+        setOriginalImage(imageUrl);
         setProcessedImage(null);
-        resetTransform();
+
+        // Reset edit mode when selecting new image
+        setEditMode('none');
+
+        // Auto-fit image to panel - use cover mode to fill the panel
+        const img = new Image();
+        img.onload = () => {
+          const panel = originalPanelRef.current;
+          if (panel) {
+            const panelW = panel.clientWidth;
+            const panelH = panel.clientHeight;
+            const imgW = img.naturalWidth;
+            const imgH = img.naturalHeight;
+
+            // Calculate scale to cover the entire panel
+            const scaleW = panelW / imgW;
+            const scaleH = panelH / imgH;
+            const coverScale = Math.max(scaleW, scaleH);
+
+            setScale(coverScale);
+            setTranslateX(0);
+            setTranslateY(0);
+          }
+        };
+        img.src = imageUrl;
       };
       reader.readAsDataURL(file);
     }
@@ -246,12 +314,6 @@ function App() {
 
   const handleDragLeave = () => {
     setDragActive(false);
-  };
-
-  const resetTransform = () => {
-    setScale(1);
-    setTranslateX(0);
-    setTranslateY(0);
   };
 
   const handleWheel = useCallback((e: React.WheelEvent) => {
@@ -277,18 +339,372 @@ function App() {
     setIsDragging(false);
   }, []);
 
-  const handleImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
-    const img = e.currentTarget;
-    const panel = img.parentElement;
-    if (!panel) return;
-    
-    const maxW = panel.clientWidth - 40;
-    const maxH = panel.clientHeight - 40;
-    const scaleW = maxW / img.naturalWidth;
-    const scaleH = maxH / img.naturalHeight;
-    const fitScale = Math.min(scaleW, scaleH, 1);
-    setScale(fitScale);
-    resetTransform();
+  const handleImageLoad = () => {
+    // Image loaded callback - scaling is already handled in file selection
+    // This function is kept for compatibility but auto-fit is done earlier
+  };
+
+  // Generate circular brush cursor
+  const generateBrushCursor = (size: number, isErase: boolean) => {
+    const canvas = document.createElement('canvas');
+    const padding = 4;
+    canvas.width = size + padding * 2;
+    canvas.height = size + padding * 2;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return 'crosshair';
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Draw outer circle
+    ctx.beginPath();
+    ctx.arc(canvas.width / 2, canvas.height / 2, size / 2, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.8)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Draw inner fill
+    ctx.beginPath();
+    ctx.arc(canvas.width / 2, canvas.height / 2, size / 2 - 1, 0, Math.PI * 2);
+    ctx.fillStyle = isErase ? 'rgba(239, 68, 68, 0.3)' : 'rgba(34, 197, 94, 0.3)';
+    ctx.fill();
+
+    // Draw crosshair center
+    ctx.beginPath();
+    ctx.moveTo(canvas.width / 2 - 3, canvas.height / 2);
+    ctx.lineTo(canvas.width / 2 + 3, canvas.height / 2);
+    ctx.moveTo(canvas.width / 2, canvas.height / 2 - 3);
+    ctx.lineTo(canvas.width / 2, canvas.height / 2 + 3);
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.6)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    return `url(${canvas.toDataURL()}) ${canvas.width / 2} ${canvas.height / 2}, crosshair`;
+  };
+
+  // Update cursor when brush size, edit mode or scale changes
+  useEffect(() => {
+    if (editMode !== 'none') {
+      // Scale brush size with image zoom level
+      const scaledBrushSize = brushSize * scale;
+      const cursor = generateBrushCursor(scaledBrushSize, editMode === 'erase');
+      setCursorStyle(cursor);
+    } else {
+      setCursorStyle('grab');
+    }
+  }, [brushSize, editMode, scale]);
+
+  // Initialize canvases when processed image changes
+  useEffect(() => {
+    if (processedImage && outputCanvasRef.current && maskCanvasRef.current && originalImage && processedCanvasRef.current) {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => {
+        const outputCanvas = outputCanvasRef.current!;
+        const processedCanvas = processedCanvasRef.current!;
+        const maskCanvas = maskCanvasRef.current!;
+        const originalCanvas = originalCanvasRef.current!;
+
+        const width = img.naturalWidth;
+        const height = img.naturalHeight;
+
+        outputCanvas.width = width;
+        outputCanvas.height = height;
+        processedCanvas.width = width;
+        processedCanvas.height = height;
+        maskCanvas.width = width;
+        maskCanvas.height = height;
+        originalCanvas.width = width;
+        originalCanvas.height = height;
+
+        // Draw processed image to processedCanvas (store AI result)
+        const processedCtx = processedCanvas.getContext('2d');
+        if (processedCtx) {
+          processedCtx.clearRect(0, 0, width, height);
+          processedCtx.drawImage(img, 0, 0);
+        }
+
+        // Initialize mask with gray (128 = show AI processed)
+        const maskCtx = maskCanvas.getContext('2d');
+        if (maskCtx) {
+          maskCtx.fillStyle = 'rgb(128, 128, 128)';
+          maskCtx.fillRect(0, 0, width, height);
+        }
+
+        // Load original image
+        const originalImg = new Image();
+        originalImg.crossOrigin = 'anonymous';
+        originalImg.onload = () => {
+          const originalCtx = originalCanvas.getContext('2d');
+          if (originalCtx) {
+            originalCtx.clearRect(0, 0, width, height);
+            originalCtx.drawImage(originalImg, 0, 0);
+          }
+          // Initial render
+          applyMaskToOutput();
+        };
+        originalImg.src = originalImage;
+
+        // Reset history
+        setMaskHistory([]);
+        setHistoryIndex(-1);
+
+        // Save initial state
+        setTimeout(() => {
+          if (maskCanvasRef.current) {
+            const ctx = maskCanvasRef.current.getContext('2d');
+            if (ctx) {
+              const imageData = ctx.getImageData(0, 0, maskCanvasRef.current.width, maskCanvasRef.current.height);
+              setMaskHistory([imageData]);
+              setHistoryIndex(0);
+            }
+          }
+        }, 0);
+      };
+      img.src = processedImage;
+    }
+  }, [processedImage, originalImage]);
+
+  // Save mask state
+  const saveMaskState = () => {
+    if (maskCanvasRef.current) {
+      const ctx = maskCanvasRef.current.getContext('2d');
+      if (ctx) {
+        const imageData = ctx.getImageData(0, 0, maskCanvasRef.current.width, maskCanvasRef.current.height);
+        setMaskHistory(prev => {
+          const newHistory = prev.slice(0, historyIndex + 1);
+          newHistory.push(imageData);
+          return newHistory.slice(-100);
+        });
+        setHistoryIndex(prev => Math.min(prev + 1, 99));
+      }
+    }
+  };
+
+  // Apply mask to output - must be defined before handleUndo
+  const applyMaskToOutput = () => {
+    if (!outputCanvasRef.current || !maskCanvasRef.current || !originalCanvasRef.current || !processedCanvasRef.current) return;
+
+    const outputCanvas = outputCanvasRef.current;
+    const maskCanvas = maskCanvasRef.current;
+    const originalCanvas = originalCanvasRef.current;
+    const processedCanvas = processedCanvasRef.current;
+
+    const outputCtx = outputCanvas.getContext('2d');
+    const maskCtx = maskCanvas.getContext('2d');
+    const originalCtx = originalCanvas.getContext('2d');
+    const processedCtx = processedCanvas.getContext('2d');
+
+    if (!outputCtx || !maskCtx || !originalCtx || !processedCtx) return;
+
+    const maskData = maskCtx.getImageData(0, 0, maskCanvas.width, maskCanvas.height);
+    const originalData = originalCtx.getImageData(0, 0, originalCanvas.width, originalCanvas.height);
+    const processedData = processedCtx.getImageData(0, 0, processedCanvas.width, processedCanvas.height);
+    const outputData = outputCtx.createImageData(outputCanvas.width, outputCanvas.height);
+
+    for (let i = 0; i < maskData.data.length; i += 4) {
+      const maskValue = maskData.data[i];
+
+      if (maskValue < 50) {
+        // Black mask = erase = transparent
+        outputData.data[i] = 0;
+        outputData.data[i + 1] = 0;
+        outputData.data[i + 2] = 0;
+        outputData.data[i + 3] = 0;
+      } else if (maskValue > 200) {
+        // White mask = restore = show original
+        outputData.data[i] = originalData.data[i];
+        outputData.data[i + 1] = originalData.data[i + 1];
+        outputData.data[i + 2] = originalData.data[i + 2];
+        outputData.data[i + 3] = originalData.data[i + 3];
+      } else {
+        // Gray mask = default = show AI processed
+        outputData.data[i] = processedData.data[i];
+        outputData.data[i + 1] = processedData.data[i + 1];
+        outputData.data[i + 2] = processedData.data[i + 2];
+        outputData.data[i + 3] = processedData.data[i + 3];
+      }
+    }
+
+    outputCtx.putImageData(outputData, 0, 0);
+  };
+
+  // Undo
+  const handleUndo = () => {
+    if (historyIndex > 0 && maskCanvasRef.current) {
+      const newIndex = historyIndex - 1;
+      const ctx = maskCanvasRef.current.getContext('2d');
+      if (ctx && maskHistory[newIndex]) {
+        ctx.putImageData(maskHistory[newIndex], 0, 0);
+        setHistoryIndex(newIndex);
+        applyMaskToOutput();
+      }
+    }
+  };
+
+  // Drawing functions
+  const handleDrawStart = (e: React.MouseEvent) => {
+    if (editMode === 'none' || !maskCanvasRef.current || !outputCanvasRef.current) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    setIsDrawing(true);
+    const rect = outputCanvasRef.current.getBoundingClientRect();
+    const scaleX = outputCanvasRef.current.width / rect.width;
+    const scaleY = outputCanvasRef.current.height / rect.height;
+
+    const x = (e.clientX - rect.left) * scaleX;
+    const y = (e.clientY - rect.top) * scaleY;
+
+    lastPosRef.current = { x, y };
+    drawOnMask(x, y);
+  };
+
+  const handleDrawMove = (e: React.MouseEvent) => {
+    if (editMode === 'none' || !isDrawing || !outputCanvasRef.current || !maskCanvasRef.current) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    const rect = outputCanvasRef.current.getBoundingClientRect();
+    const scaleX = outputCanvasRef.current.width / rect.width;
+    const scaleY = outputCanvasRef.current.height / rect.height;
+
+    const x = (e.clientX - rect.left) * scaleX;
+    const y = (e.clientY - rect.top) * scaleY;
+
+    if (lastPosRef.current) {
+      drawLineOnMask(lastPosRef.current, { x, y });
+    }
+
+    lastPosRef.current = { x, y };
+  };
+
+  const handleDrawEnd = () => {
+    if (isDrawing) {
+      setIsDrawing(false);
+      lastPosRef.current = null;
+      saveMaskState();
+    }
+  };
+
+  // Handle mouse move in original panel to show virtual cursor in result panel
+  const handleOriginalPanelMouseMove = (e: React.MouseEvent) => {
+    if (editMode === 'none' || !originalPanelRef.current || !outputCanvasRef.current) return;
+
+    const originalPanel = originalPanelRef.current;
+    const resultPanel = resultPanelRef.current;
+    if (!resultPanel) return;
+
+    // Get mouse position relative to original panel
+    const originalRect = originalPanel.getBoundingClientRect();
+    const relativeX = (e.clientX - originalRect.left) / originalRect.width;
+    const relativeY = (e.clientY - originalRect.top) / originalRect.height;
+
+    // Map to result panel
+    const resultRect = resultPanel.getBoundingClientRect();
+    const resultX = relativeX * resultRect.width;
+    const resultY = relativeY * resultRect.height;
+
+    setVirtualCursorPos({ x: resultX, y: resultY });
+    setActivePanel('original');
+  };
+
+  // Handle mouse move in result panel to show virtual cursor in original panel
+  const handleResultPanelMouseMove = (e: React.MouseEvent) => {
+    if (editMode === 'none' || !resultPanelRef.current || !originalPanelRef.current) return;
+
+    const resultPanel = resultPanelRef.current;
+    const originalPanel = originalPanelRef.current;
+
+    // Get mouse position relative to result panel
+    const resultRect = resultPanel.getBoundingClientRect();
+    const relativeX = (e.clientX - resultRect.left) / resultRect.width;
+    const relativeY = (e.clientY - resultRect.top) / resultRect.height;
+
+    // Map to original panel
+    const originalRect = originalPanel.getBoundingClientRect();
+    const originalX = relativeX * originalRect.width;
+    const originalY = relativeY * originalRect.height;
+
+    setVirtualCursorPos({ x: originalX, y: originalY });
+    setActivePanel('result');
+  };
+
+  // Hide virtual cursor when mouse leaves panels
+  const handlePanelMouseLeave = () => {
+    setVirtualCursorPos(null);
+    setActivePanel(null);
+  };
+
+  // Original panel drag handlers for edit mode
+  const handleOriginalMouseDown = (e: React.MouseEvent) => {
+    if (editMode === 'none' || !originalImage) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setIsOriginalDragging(true);
+    setOriginalStartPos({ x: e.clientX, y: e.clientY });
+    setOriginalStartTranslate({ x: translateX, y: translateY });
+  };
+
+  const handleOriginalMouseMove = (e: React.MouseEvent) => {
+    if (!isOriginalDragging) return;
+    setTranslateX(originalStartTranslate.x + (e.clientX - originalStartPos.x));
+    setTranslateY(originalStartTranslate.y + (e.clientY - originalStartPos.y));
+  };
+
+  const handleOriginalMouseUp = () => {
+    setIsOriginalDragging(false);
+  };
+
+  const drawOnMask = (x: number, y: number) => {
+    if (!maskCanvasRef.current || !outputCanvasRef.current) return;
+
+    const maskCtx = maskCanvasRef.current.getContext('2d');
+    const outputCtx = outputCanvasRef.current.getContext('2d');
+    if (!maskCtx || !outputCtx) return;
+
+    const radius = brushSize / 2;
+
+    // Draw on mask
+    maskCtx.beginPath();
+    maskCtx.arc(x, y, radius, 0, Math.PI * 2);
+    maskCtx.fillStyle = editMode === 'erase' ? 'black' : 'white';
+    maskCtx.fill();
+
+    // Apply to output immediately
+    applyMaskToOutput();
+  };
+
+  const drawLineOnMask = (from: { x: number; y: number }, to: { x: number; y: number }) => {
+    if (!maskCanvasRef.current || !outputCanvasRef.current) return;
+
+    const maskCtx = maskCanvasRef.current.getContext('2d');
+    if (!maskCtx) return;
+
+    const radius = brushSize / 2;
+    const distance = Math.sqrt(Math.pow(to.x - from.x, 2) + Math.pow(to.y - from.y, 2));
+    const steps = Math.max(1, Math.ceil(distance / (radius / 2)));
+
+    maskCtx.fillStyle = editMode === 'erase' ? 'black' : 'white';
+
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      const x = from.x + (to.x - from.x) * t;
+      const y = from.y + (to.y - from.y) * t;
+
+      maskCtx.beginPath();
+      maskCtx.arc(x, y, radius, 0, Math.PI * 2);
+      maskCtx.fill();
+    }
+
+    applyMaskToOutput();
+  };
+
+  const handleSaveWithMask = () => {
+    if (!outputCanvasRef.current) return;
+    const link = document.createElement('a');
+    link.href = outputCanvasRef.current.toDataURL('image/png');
+    link.download = 'removed_bg_edited.png';
+    link.click();
   };
 
   return (
@@ -464,22 +880,66 @@ function App() {
             <span className="btn-icon">📁</span>
             选择图片
           </button>
-          <button 
-            className="btn btn-success" 
+          <button
+            className="btn btn-success"
             onClick={handleProcess}
             disabled={!originalImage || isProcessing}
           >
             <span className="btn-icon">{isProcessing ? '⏳' : '✨'}</span>
             {isProcessing ? '处理中...' : 'AI抠图'}
           </button>
-          <button 
-            className="btn btn-secondary" 
-            onClick={handleSave}
+          <button
+            className="btn btn-secondary"
+            onClick={processedImage ? handleSaveWithMask : handleSave}
             disabled={!processedImage}
           >
             <span className="btn-icon">💾</span>
             导出图片
           </button>
+          {processedImage && (
+            <>
+              <div className="toolbar-divider" />
+              <button
+                className={`btn ${editMode === 'erase' ? 'btn-active' : 'btn-outline'}`}
+                onClick={() => setEditMode(editMode === 'erase' ? 'none' : 'erase')}
+                title="擦除"
+              >
+                <span className="btn-icon">🧹</span>
+                擦除
+              </button>
+              <button
+                className={`btn ${editMode === 'restore' ? 'btn-active' : 'btn-outline'}`}
+                onClick={() => setEditMode(editMode === 'restore' ? 'none' : 'restore')}
+                title="修补"
+              >
+                <span className="btn-icon">✏️</span>
+                修补
+              </button>
+              <button
+                className="btn btn-outline"
+                onClick={handleUndo}
+                disabled={historyIndex <= 0}
+                title="撤回"
+              >
+                <span className="btn-icon">↩️</span>
+                撤回
+              </button>
+              {editMode !== 'none' && (
+                <div className="brush-control">
+                  <span className="brush-label">画笔:</span>
+                  <input
+                    type="range"
+                    min="5"
+                    max="100"
+                    value={brushSize}
+                    onChange={(e) => setBrushSize(Number(e.target.value))}
+                    className="brush-slider"
+                  />
+                  <span className="brush-value">{brushSize}px</span>
+                </div>
+              )}
+            </>
+          )}
         </div>
 
         <div className="workspace">
@@ -487,34 +947,61 @@ function App() {
             <div className="panel-header">
               <span>原图</span>
             </div>
-            <div 
+            <div
               ref={originalPanelRef}
-              className={`panel-content ${dragActive ? 'drag-active' : ''} ${isDragging ? 'dragging' : ''}`}
+              className={`panel-content ${dragActive ? 'drag-active' : ''} ${isDragging || isOriginalDragging ? 'dragging' : ''} ${editMode !== 'none' ? 'edit-mode' : ''}`}
+              style={{ cursor: editMode !== 'none' ? (isOriginalDragging ? 'grabbing' : cursorStyle) : 'grab' }}
               onDrop={handleDrop}
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}
               onClick={() => !originalImage && fileInputRef.current?.click()}
-              onMouseDown={handleMouseDown}
-              onMouseMove={handleMouseMove}
-              onMouseUp={handleMouseUp}
-              onMouseLeave={handleMouseUp}
+              onMouseDown={editMode === 'none' ? handleMouseDown : handleOriginalMouseDown}
+              onMouseMove={editMode === 'none' ? handleMouseMove : (e) => {
+                handleOriginalPanelMouseMove(e);
+                handleOriginalMouseMove(e);
+              }}
+              onMouseUp={editMode === 'none' ? handleMouseUp : handleOriginalMouseUp}
+              onMouseLeave={() => {
+                if (editMode === 'none') {
+                  handleMouseUp();
+                } else {
+                  handleOriginalMouseUp();
+                  handlePanelMouseLeave();
+                }
+              }}
             >
-              <div 
+              <div
                 className="image-container"
                 style={{
                   transform: `translate(calc(-50% + ${translateX}px), calc(-50% + ${translateY}px)) scale(${scale})`
                 }}
               >
                 {originalImage && (
-                  <img 
+                  <img
                     ref={originalImgRef}
-                    src={originalImage} 
-                    alt="Original" 
+                    src={originalImage}
+                    alt="Original"
                     className="preview-image"
                     onLoad={handleImageLoad}
                   />
                 )}
               </div>
+              {/* Virtual cursor in original panel */}
+              {editMode !== 'none' && activePanel === 'result' && virtualCursorPos && (
+                <div
+                  className="virtual-cursor"
+                  style={{
+                    left: virtualCursorPos.x,
+                    top: virtualCursorPos.y,
+                    width: brushSize * scale,
+                    height: brushSize * scale,
+                    marginLeft: -(brushSize * scale) / 2,
+                    marginTop: -(brushSize * scale) / 2,
+                    borderColor: editMode === 'erase' ? 'rgba(239, 68, 68, 0.8)' : 'rgba(34, 197, 94, 0.8)',
+                    backgroundColor: editMode === 'erase' ? 'rgba(239, 68, 68, 0.3)' : 'rgba(34, 197, 94, 0.3)'
+                  }}
+                />
+              )}
               {!originalImage && (
                 <div className="drop-zone">
                   <div className="drop-zone-icon">🖼️</div>
@@ -540,31 +1027,76 @@ function App() {
             <div className="panel-header">
               <span>结果预览</span>
               {processedImage && (
-                <span className="preview-badge">已处理</span>
+                <>
+                  <span className="preview-badge">已处理</span>
+                  {editMode !== 'none' && (
+                    <span className="edit-badge">{editMode === 'erase' ? '擦除模式' : '修补模式'}</span>
+                  )}
+                </>
               )}
             </div>
-            <div 
+            <div
               ref={resultPanelRef}
-              className={`panel-content result-panel ${isDragging ? 'dragging' : ''}`}
-              onMouseDown={handleMouseDown}
-              onMouseMove={handleMouseMove}
-              onMouseUp={handleMouseUp}
-              onMouseLeave={handleMouseUp}
+              className={`panel-content result-panel ${isDragging ? 'dragging' : ''} ${editMode !== 'none' ? 'edit-mode' : ''}`}
+              style={{ cursor: cursorStyle }}
+              onMouseDown={editMode === 'none' ? handleMouseDown : handleDrawStart}
+              onMouseMove={editMode === 'none' ? handleMouseMove : (e) => {
+                handleDrawMove(e);
+                handleResultPanelMouseMove(e);
+              }}
+              onMouseUp={editMode === 'none' ? handleMouseUp : handleDrawEnd}
+              onMouseLeave={() => {
+                if (editMode === 'none') {
+                  handleMouseUp();
+                } else {
+                  handleDrawEnd();
+                  handlePanelMouseLeave();
+                }
+              }}
             >
-              <div 
+              <div
                 className="image-container"
                 style={{
                   transform: `translate(calc(-50% + ${translateX}px), calc(-50% + ${translateY}px)) scale(${scale})`
                 }}
               >
                 {processedImage && (
-                  <img 
-                    src={processedImage} 
-                    alt="Processed" 
-                    className="preview-image"
-                  />
+                  <>
+                    <canvas
+                      ref={outputCanvasRef}
+                      className="preview-canvas"
+                    />
+                    <canvas
+                      ref={processedCanvasRef}
+                      style={{ display: 'none' }}
+                    />
+                    <canvas
+                      ref={maskCanvasRef}
+                      style={{ display: 'none' }}
+                    />
+                    <canvas
+                      ref={originalCanvasRef}
+                      style={{ display: 'none' }}
+                    />
+                  </>
                 )}
               </div>
+              {/* Virtual cursor in result panel */}
+              {editMode !== 'none' && activePanel === 'original' && virtualCursorPos && (
+                <div
+                  className="virtual-cursor"
+                  style={{
+                    left: virtualCursorPos.x,
+                    top: virtualCursorPos.y,
+                    width: brushSize * scale,
+                    height: brushSize * scale,
+                    marginLeft: -(brushSize * scale) / 2,
+                    marginTop: -(brushSize * scale) / 2,
+                    borderColor: editMode === 'erase' ? 'rgba(239, 68, 68, 0.8)' : 'rgba(34, 197, 94, 0.8)',
+                    backgroundColor: editMode === 'erase' ? 'rgba(239, 68, 68, 0.3)' : 'rgba(34, 197, 94, 0.3)'
+                  }}
+                />
+              )}
               {!processedImage && (
                 <div className="empty-result">
                   <div className="empty-icon">🎯</div>
