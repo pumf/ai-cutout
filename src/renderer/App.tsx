@@ -1272,7 +1272,7 @@ function App() {
             <div
               ref={originalPanelRef}
               className={`panel-content ${dragActive ? 'drag-active' : ''} ${isDragging || isOriginalDragging ? 'dragging' : ''} ${editMode !== 'none' ? 'edit-mode' : ''}`}
-              style={{ cursor: editMode !== 'none' ? (isOriginalDragging ? 'grabbing' : 'none') : 'grab' }}
+              style={{ cursor: editMode !== 'none' ? (isOriginalDragging ? 'grabbing' : 'default') : 'grab' }}
               onDrop={handleDrop}
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}
@@ -1327,7 +1327,7 @@ function App() {
                 )}
               </div>
               {/* Virtual cursor in original panel */}
-              {(editMode !== 'none' && isMouseInOriginalPanel) || isAdjustingBrush && (
+              {editMode !== 'none' && (
                 <div
                   ref={originalCursorRef}
                   className="virtual-cursor"
@@ -1445,7 +1445,7 @@ function App() {
                 )}
               </div>
               {/* Virtual cursor in result panel */}
-              {(editMode !== 'none' && isMouseInResultPanel) || isAdjustingBrush && (
+              {editMode !== 'none' && (
                 <div
                   ref={resultCursorRef}
                   className="virtual-cursor"

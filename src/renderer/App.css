@@ -519,7 +519,7 @@ body {
 }
 
 .panel-content.edit-mode {
-  cursor: crosshair;
+  cursor: default;
 }
 
 /* Virtual cursor for dual panel sync */
