@@ -30,6 +30,11 @@ function App() {
   const [isOriginalDragging, setIsOriginalDragging] = useState(false);
   const [showZoomDropdown, setShowZoomDropdown] = useState(false);
   const [isMouseInPanel, setIsMouseInPanel] = useState(false);
+  
+  // Background settings
+  const [bgColor, setBgColor] = useState<string>('transparent');
+  const [bgImage, setBgImage] = useState<string | null>(null);
+  const [showBgPicker, setShowBgPicker] = useState(false);
 
   // Use refs for virtual cursor elements to avoid React re-render
   const originalCursorRef = useRef<HTMLDivElement>(null);
@@ -1021,7 +1026,134 @@ function App() {
               </div>
             )}
           </div>
-          
+
+          {/* Background Picker */}
+          {processedImage && (
+            <>
+              <div className="toolbar-divider" />
+              <div className="bg-picker">
+                <button
+                  className="btn btn-outline"
+                  onClick={() => setShowBgPicker(!showBgPicker)}
+                  title="设置背景颜色或图片"
+                >
+                  <span className="btn-icon">🎨</span>
+                  背景
+                </button>
+                {showBgPicker && (
+                  <div className="bg-picker-dropdown">
+                    <div className="bg-picker-section">
+                      <div className="bg-picker-label">预设颜色</div>
+                      <div className="bg-picker-colors">
+                        <div
+                          className={`bg-picker-color ${bgColor === 'transparent' && !bgImage ? 'active' : ''}`}
+                          onClick={() => { setBgColor('transparent'); setBgImage(null); }}
+                          title="透明"
+                        >
+                          <div className="bg-color-transparent" />
+                        </div>
+                        <div
+                          className={`bg-picker-color ${bgColor === '#ffffff' && !bgImage ? 'active' : ''}`}
+                          onClick={() => { setBgColor('#ffffff'); setBgImage(null); }}
+                          style={{ backgroundColor: '#ffffff' }}
+                          title="白色"
+                        />
+                        <div
+                          className={`bg-picker-color ${bgColor === '#000000' && !bgImage ? 'active' : ''}`}
+                          onClick={() => { setBgColor('#000000'); setBgImage(null); }}
+                          style={{ backgroundColor: '#000000' }}
+                          title="黑色"
+                        />
+                        <div
+                          className={`bg-picker-color ${bgColor === '#ef4444' && !bgImage ? 'active' : ''}`}
+                          onClick={() => { setBgColor('#ef4444'); setBgImage(null); }}
+                          style={{ backgroundColor: '#ef4444' }}
+                          title="红色"
+                        />
+                        <div
+                          className={`bg-picker-color ${bgColor === '#3b82f6' && !bgImage ? 'active' : ''}`}
+                          onClick={() => { setBgColor('#3b82f6'); setBgImage(null); }}
+                          style={{ backgroundColor: '#3b82f6' }}
+                          title="蓝色"
+                        />
+                        <div
+                          className={`bg-picker-color ${bgColor === '#10b981' && !bgImage ? 'active' : ''}`}
+                          onClick={() => { setBgColor('#10b981'); setBgImage(null); }}
+                          style={{ backgroundColor: '#10b981' }}
+                          title="绿色"
+                        />
+                        <div
+                          className={`bg-picker-color ${bgColor === '#f59e0b' && !bgImage ? 'active' : ''}`}
+                          onClick={() => { setBgColor('#f59e0b'); setBgImage(null); }}
+                          style={{ backgroundColor: '#f59e0b' }}
+                          title="黄色"
+                        />
+                        <div
+                          className={`bg-picker-color ${bgColor === '#8b5cf6' && !bgImage ? 'active' : ''}`}
+                          onClick={() => { setBgColor('#8b5cf6'); setBgImage(null); }}
+                          style={{ backgroundColor: '#8b5cf6' }}
+                          title="紫色"
+                        />
+                        <div
+                          className={`bg-picker-color ${bgColor === '#ec4899' && !bgImage ? 'active' : ''}`}
+                          onClick={() => { setBgColor('#ec4899'); setBgImage(null); }}
+                          style={{ backgroundColor: '#ec4899' }}
+                          title="粉色"
+                        />
+                      </div>
+                    </div>
+                    <div className="bg-picker-section">
+                      <div className="bg-picker-label">自定义颜色</div>
+                      <input
+                        type="color"
+                        value={bgColor === 'transparent' ? '#ffffff' : bgColor}
+                        onChange={(e) => { setBgColor(e.target.value); setBgImage(null); }}
+                        className="bg-picker-color-input"
+                        title="选择自定义颜色"
+                      />
+                    </div>
+                    <div className="bg-picker-section">
+                      <div className="bg-picker-label">背景图片</div>
+                      <button
+                        className="btn btn-secondary btn-sm"
+                        onClick={() => {
+                          const input = document.createElement('input');
+                          input.type = 'file';
+                          input.accept = 'image/*';
+                          input.onchange = (e) => {
+                            const file = (e.target as HTMLInputElement).files?.[0];
+                            if (file) {
+                              const reader = new FileReader();
+                              reader.onload = (e) => {
+                                setBgImage(e.target?.result as string);
+                              };
+                              reader.readAsDataURL(file);
+                            }
+                          };
+                          input.click();
+                        }}
+                      >
+                        📁 选择图片
+                      </button>
+                      {bgImage && (
+                        <button
+                          className="btn btn-outline btn-sm"
+                          onClick={() => setBgImage(null)}
+                          style={{ marginLeft: '8px' }}
+                        >
+                          ❌ 清除
+                        </button>
+                      )}
+                    </div>
+                    <div className="bg-picker-close" onClick={() => setShowBgPicker(false)}>
+                      关闭
+                    </div>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+
           {processedImage && (
             <>
               <div className="toolbar-divider" />
@@ -1219,7 +1351,12 @@ function App() {
               <div
                 className="image-container"
                 style={{
-                  transform: `translate(calc(-50% + ${translateX}px), calc(-50% + ${translateY}px)) scale(${scale})`
+                  transform: `translate(calc(-50% + ${translateX}px), calc(-50% + ${translateY}px)) scale(${scale})`,
+                  backgroundColor: bgColor === 'transparent' ? 'transparent' : bgColor,
+                  backgroundImage: bgImage ? `url(${bgImage})` : bgColor === 'transparent' ? 
+                    'linear-gradient(45deg, #ccc 25%, transparent 25%), linear-gradient(-45deg, #ccc 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #ccc 75%), linear-gradient(-45deg, transparent 75%, #ccc 75%)' : 'none',
+                  backgroundSize: bgImage ? 'cover' : '20px 20px',
+                  backgroundPosition: bgImage ? 'center' : '0 0, 0 10px, 10px -10px, -10px 0px'
                 }}
               >
                 {processedImage && (
