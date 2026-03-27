@@ -29,10 +29,14 @@ function App() {
   const [historyIndex, setHistoryIndex] = useState(-1);
   const [isOriginalDragging, setIsOriginalDragging] = useState(false);
   const [showZoomDropdown, setShowZoomDropdown] = useState(false);
-  
+  const [isMouseInPanel, setIsMouseInPanel] = useState(false);
+
   // Use refs for virtual cursor elements to avoid React re-render
   const originalCursorRef = useRef<HTMLDivElement>(null);
   const resultCursorRef = useRef<HTMLDivElement>(null);
+
+  // Refs for smooth drawing
+  const tempCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const [originalStartPos, setOriginalStartPos] = useState({ x: 0, y: 0 });
   const [originalStartTranslate, setOriginalStartTranslate] = useState({ x: 0, y: 0 });
 
@@ -517,26 +521,32 @@ function App() {
 
     for (let i = 0; i < maskData.data.length; i += 4) {
       const maskValue = maskData.data[i];
+      let r = processedData.data[i];
+      let g = processedData.data[i + 1];
+      let b = processedData.data[i + 2];
+      let a = processedData.data[i + 3];
 
-      if (maskValue < 50) {
-        // Black mask = erase = transparent
-        outputData.data[i] = 0;
-        outputData.data[i + 1] = 0;
-        outputData.data[i + 2] = 0;
-        outputData.data[i + 3] = 0;
-      } else if (maskValue > 200) {
-        // White mask = restore = show original
-        outputData.data[i] = originalData.data[i];
-        outputData.data[i + 1] = originalData.data[i + 1];
-        outputData.data[i + 2] = originalData.data[i + 2];
-        outputData.data[i + 3] = originalData.data[i + 3];
-      } else {
-        // Gray mask = default = show AI processed
-        outputData.data[i] = processedData.data[i];
-        outputData.data[i + 1] = processedData.data[i + 1];
-        outputData.data[i + 2] = processedData.data[i + 2];
-        outputData.data[i + 3] = processedData.data[i + 3];
+      if (maskValue < 128) {
+        // Erase region: interpolate between transparent (mask=0) and processed (mask=128)
+        const factor = maskValue / 128; // 0 to 1
+        r = processedData.data[i] * factor;
+        g = processedData.data[i + 1] * factor;
+        b = processedData.data[i + 2] * factor;
+        a = processedData.data[i + 3] * factor;
+      } else if (maskValue > 128) {
+        // Restore region: interpolate between processed (mask=128) and original (mask=255)
+        const factor = (maskValue - 128) / 127; // 0 to 1
+        r = processedData.data[i] * (1 - factor) + originalData.data[i] * factor;
+        g = processedData.data[i + 1] * (1 - factor) + originalData.data[i + 1] * factor;
+        b = processedData.data[i + 2] * (1 - factor) + originalData.data[i + 2] * factor;
+        a = processedData.data[i + 3] * (1 - factor) + originalData.data[i + 3] * factor;
       }
+      // maskValue == 128: use processed as-is
+
+      outputData.data[i] = r;
+      outputData.data[i + 1] = g;
+      outputData.data[i + 2] = b;
+      outputData.data[i + 3] = a;
     }
 
     outputCtx.putImageData(outputData, 0, 0);
@@ -630,48 +640,150 @@ function App() {
     setIsOriginalDragging(false);
   };
 
-  const drawOnMask = (x: number, y: number) => {
-    if (!maskCanvasRef.current || !outputCanvasRef.current) return;
+  // Draw perfect smooth circle using radial gradient - like the virtual cursor
+  const drawPerfectCircle = (ctx: CanvasRenderingContext2D, x: number, y: number, radius: number, isErase: boolean) => {
+    ctx.save();
+    
+    // Create radial gradient for anti-aliased edges
+    const gradient = ctx.createRadialGradient(x, y, 0, x, y, radius);
+    
+    if (isErase) {
+      // For erase: solid transparent center, fading to transparent edge
+      gradient.addColorStop(0, 'rgba(0, 0, 0, 1)');
+      gradient.addColorStop(0.85, 'rgba(0, 0, 0, 1)');
+      gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+      ctx.fillStyle = gradient;
+      ctx.globalCompositeOperation = 'destination-out';
+    } else {
+      // For restore: we need to blend original image with gradient alpha
+      gradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
+      gradient.addColorStop(0.85, 'rgba(255, 255, 255, 1)');
+      gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
+      ctx.fillStyle = gradient;
+      ctx.globalCompositeOperation = 'destination-in';
+    }
+    
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+    ctx.fill();
+    
+    ctx.restore();
+  };
 
-    const maskCtx = maskCanvasRef.current.getContext('2d');
-    const outputCtx = outputCanvasRef.current.getContext('2d');
-    if (!maskCtx || !outputCtx) return;
+  const drawOnMask = (x: number, y: number) => {
+    if (!outputCanvasRef.current || !processedCanvasRef.current || !originalCanvasRef.current) return;
+
+    const outputCanvas = outputCanvasRef.current;
+    const processedCanvas = processedCanvasRef.current;
+    const originalCanvas = originalCanvasRef.current;
+    const outputCtx = outputCanvas.getContext('2d');
+    
+    if (!outputCtx) return;
 
     const radius = brushSize / 2;
-
-    // Draw on mask
-    maskCtx.beginPath();
-    maskCtx.arc(x, y, radius, 0, Math.PI * 2);
-    maskCtx.fillStyle = editMode === 'erase' ? 'black' : 'white';
-    maskCtx.fill();
-
-    // Apply to output immediately
-    applyMaskToOutput();
+    
+    if (editMode === 'erase') {
+      // Erase mode: use destination-out to create transparent hole
+      outputCtx.save();
+      const gradient = outputCtx.createRadialGradient(x, y, 0, x, y, radius);
+      gradient.addColorStop(0, 'rgba(0, 0, 0, 1)');
+      gradient.addColorStop(0.85, 'rgba(0, 0, 0, 1)');
+      gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+      outputCtx.fillStyle = gradient;
+      outputCtx.globalCompositeOperation = 'destination-out';
+      outputCtx.beginPath();
+      outputCtx.arc(x, y, radius, 0, Math.PI * 2);
+      outputCtx.fill();
+      outputCtx.restore();
+    } else {
+      // Restore mode: draw original image with circular mask
+      outputCtx.save();
+      // Create circular clipping path
+      outputCtx.beginPath();
+      outputCtx.arc(x, y, radius, 0, Math.PI * 2);
+      outputCtx.clip();
+      // Draw original image
+      outputCtx.drawImage(originalCanvas, 0, 0);
+      outputCtx.restore();
+    }
+    
+    // Also record in mask canvas for history
+    if (maskCanvasRef.current) {
+      const maskCtx = maskCanvasRef.current.getContext('2d');
+      if (maskCtx) {
+        maskCtx.beginPath();
+        maskCtx.arc(x, y, radius, 0, Math.PI * 2);
+        maskCtx.fillStyle = editMode === 'erase' ? 'black' : 'white';
+        maskCtx.fill();
+      }
+    }
   };
 
   const drawLineOnMask = (from: { x: number; y: number }, to: { x: number; y: number }) => {
-    if (!maskCanvasRef.current || !outputCanvasRef.current) return;
+    if (!outputCanvasRef.current || !processedCanvasRef.current || !originalCanvasRef.current) return;
 
-    const maskCtx = maskCanvasRef.current.getContext('2d');
-    if (!maskCtx) return;
+    const outputCanvas = outputCanvasRef.current;
+    const processedCanvas = processedCanvasRef.current;
+    const originalCanvas = originalCanvasRef.current;
+    const outputCtx = outputCanvas.getContext('2d');
+    
+    if (!outputCtx) return;
 
     const radius = brushSize / 2;
     const distance = Math.sqrt(Math.pow(to.x - from.x, 2) + Math.pow(to.y - from.y, 2));
-    const steps = Math.max(1, Math.ceil(distance / (radius / 2)));
+    const steps = Math.max(1, Math.ceil(distance / (radius / 3)));
 
-    maskCtx.fillStyle = editMode === 'erase' ? 'black' : 'white';
-
-    for (let i = 0; i <= steps; i++) {
-      const t = i / steps;
-      const x = from.x + (to.x - from.x) * t;
-      const y = from.y + (to.y - from.y) * t;
-
-      maskCtx.beginPath();
-      maskCtx.arc(x, y, radius, 0, Math.PI * 2);
-      maskCtx.fill();
+    if (editMode === 'erase') {
+      outputCtx.save();
+      outputCtx.globalCompositeOperation = 'destination-out';
+      
+      for (let i = 0; i <= steps; i++) {
+        const t = i / steps;
+        const x = from.x + (to.x - from.x) * t;
+        const y = from.y + (to.y - from.y) * t;
+        
+        const gradient = outputCtx.createRadialGradient(x, y, 0, x, y, radius);
+        gradient.addColorStop(0, 'rgba(0, 0, 0, 1)');
+        gradient.addColorStop(0.85, 'rgba(0, 0, 0, 1)');
+        gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+        outputCtx.fillStyle = gradient;
+        outputCtx.beginPath();
+        outputCtx.arc(x, y, radius, 0, Math.PI * 2);
+        outputCtx.fill();
+      }
+      
+      outputCtx.restore();
+    } else {
+      // Restore mode: draw original image along the line
+      for (let i = 0; i <= steps; i++) {
+        const t = i / steps;
+        const x = from.x + (to.x - from.x) * t;
+        const y = from.y + (to.y - from.y) * t;
+        
+        outputCtx.save();
+        outputCtx.beginPath();
+        outputCtx.arc(x, y, radius, 0, Math.PI * 2);
+        outputCtx.clip();
+        outputCtx.drawImage(originalCanvas, 0, 0);
+        outputCtx.restore();
+      }
     }
-
-    applyMaskToOutput();
+    
+    // Record in mask canvas
+    if (maskCanvasRef.current) {
+      const maskCtx = maskCanvasRef.current.getContext('2d');
+      if (maskCtx) {
+        maskCtx.fillStyle = editMode === 'erase' ? 'black' : 'white';
+        for (let i = 0; i <= steps; i++) {
+          const t = i / steps;
+          const x = from.x + (to.x - from.x) * t;
+          const y = from.y + (to.y - from.y) * t;
+          maskCtx.beginPath();
+          maskCtx.arc(x, y, radius, 0, Math.PI * 2);
+          maskCtx.fill();
+        }
+      }
+    }
   };
 
   const handleSaveWithMask = () => {
@@ -992,12 +1104,14 @@ function App() {
                 }
               }}
               onMouseUp={editMode === 'none' ? handleMouseUp : handleOriginalMouseUp}
+              onMouseEnter={() => setIsMouseInPanel(true)}
               onMouseLeave={() => {
                 if (editMode === 'none') {
                   handleMouseUp();
                 } else {
                   handleOriginalMouseUp();
                 }
+                setIsMouseInPanel(false);
               }}
             >
               <div
@@ -1017,7 +1131,7 @@ function App() {
                 )}
               </div>
               {/* Virtual cursor in original panel */}
-              {editMode !== 'none' && (
+              {editMode !== 'none' && isMouseInPanel && (
                 <div
                   ref={originalCursorRef}
                   className="virtual-cursor"
@@ -1092,12 +1206,14 @@ function App() {
                 }
               }}
               onMouseUp={editMode === 'none' ? handleMouseUp : handleDrawEnd}
+              onMouseEnter={() => setIsMouseInPanel(true)}
               onMouseLeave={() => {
                 if (editMode === 'none') {
                   handleMouseUp();
                 } else {
                   handleDrawEnd();
                 }
+                setIsMouseInPanel(false);
               }}
             >
               <div
@@ -1128,7 +1244,7 @@ function App() {
                 )}
               </div>
               {/* Virtual cursor in result panel */}
-              {editMode !== 'none' && (
+              {editMode !== 'none' && isMouseInPanel && (
                 <div
                   ref={resultCursorRef}
                   className="virtual-cursor"
