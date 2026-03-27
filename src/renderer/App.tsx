@@ -44,24 +44,42 @@ function App() {
   const originalCanvasRef = useRef<HTMLCanvasElement>(null);
   const lastPosRef = useRef<{ x: number; y: number } | null>(null);
 
+  // Handle zoom with mouse position as center
+  const handleZoom = useCallback((e: WheelEvent, panelRef: React.RefObject<HTMLDivElement>) => {
+    e.preventDefault();
+    const delta = e.deltaY > 0 ? 0.9 : 1.1;
+    const newScale = Math.max(0.1, Math.min(10, scale * delta));
+    
+    if (panelRef.current) {
+      const rect = panelRef.current.getBoundingClientRect();
+      // Mouse position relative to panel center
+      const mouseX = e.clientX - rect.left - rect.width / 2;
+      const mouseY = e.clientY - rect.top - rect.height / 2;
+      
+      // Calculate offset to keep mouse position stable
+      const scaleRatio = newScale / scale;
+      setTranslateX(translateX + mouseX * (1 - scaleRatio));
+      setTranslateY(translateY + mouseY * (1 - scaleRatio));
+    }
+    
+    setScale(newScale);
+  }, [scale, translateX, translateY]);
+
   useEffect(() => {
-    const handleWheel = (e: WheelEvent) => {
-      e.preventDefault();
-      const delta = e.deltaY > 0 ? 0.9 : 1.1;
-      setScale(prev => Math.max(0.1, Math.min(10, prev * delta)));
-    };
+    const handleOriginalWheel = (e: WheelEvent) => handleZoom(e, originalPanelRef);
+    const handleResultWheel = (e: WheelEvent) => handleZoom(e, resultPanelRef);
 
     const panel1 = originalPanelRef.current;
     const panel2 = resultPanelRef.current;
 
-    panel1?.addEventListener('wheel', handleWheel, { passive: false });
-    panel2?.addEventListener('wheel', handleWheel, { passive: false });
+    panel1?.addEventListener('wheel', handleOriginalWheel, { passive: false });
+    panel2?.addEventListener('wheel', handleResultWheel, { passive: false });
 
     return () => {
-      panel1?.removeEventListener('wheel', handleWheel);
-      panel2?.removeEventListener('wheel', handleWheel);
+      panel1?.removeEventListener('wheel', handleOriginalWheel);
+      panel2?.removeEventListener('wheel', handleResultWheel);
     };
-  }, []);
+  }, [handleZoom]);
 
   const loadAvailableModels = async () => {
     try {
@@ -628,15 +646,22 @@ function App() {
           <span className="titlebar-title">小飞AI抠图 1.0</span>
         </div>
         <div className="titlebar-controls">
-          <button className="titlebar-model" onClick={() => setShowModelSelector(true)}>
+          <button 
+            className="titlebar-model" 
+            onClick={() => setShowModelSelector(true)}
+            title="点击切换AI模型"
+          >
             <span>🤖</span>
             <span>{currentModel?.display_name || currentModel?.name || '选择模型'}</span>
           </button>
-          <div className={`titlebar-status ${modelStatus}`}>
+          <div 
+            className={`titlebar-status ${modelStatus}`}
+            title={modelStatus === 'ready' ? '模型已加载，可以开始处理' : '模型未加载，请先选择模型'}
+          >
             <span className="status-dot"></span>
             <span>{modelStatus === 'ready' ? '已加载' : '未加载'}</span>
           </div>
-          <button className="titlebar-btn titlebar-btn-help" onClick={() => setShowHelp(true)} title="使用说明">
+          <button className="titlebar-btn titlebar-btn-help" onClick={() => setShowHelp(true)} title="查看使用说明和常见问题">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <circle cx="12" cy="12" r="10"/>
               <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
@@ -789,7 +814,11 @@ function App() {
 
       <main className="main">
         <div className="toolbar">
-          <button className="btn btn-primary" onClick={handleSelectImage}>
+          <button 
+            className="btn btn-primary" 
+            onClick={handleSelectImage}
+            title="选择本地图片文件 (支持 PNG, JPG, WebP)"
+          >
             <span className="btn-icon">📁</span>
             选择图片
           </button>
@@ -797,6 +826,7 @@ function App() {
             className="btn btn-success"
             onClick={handleProcess}
             disabled={!originalImage || isProcessing}
+            title={!originalImage ? "请先选择图片" : isProcessing ? "正在处理中..." : "使用AI模型去除背景"}
           >
             <span className="btn-icon">{isProcessing ? '⏳' : '✨'}</span>
             {isProcessing ? '处理中...' : 'AI抠图'}
@@ -805,6 +835,7 @@ function App() {
             className="btn btn-secondary"
             onClick={processedImage ? handleSaveWithMask : handleSave}
             disabled={!processedImage}
+            title={!processedImage ? "请先处理图片" : "保存处理结果为PNG图片"}
           >
             <span className="btn-icon">💾</span>
             导出图片
@@ -815,7 +846,7 @@ function App() {
               <button
                 className={`btn ${editMode === 'erase' ? 'btn-active' : 'btn-outline'}`}
                 onClick={() => setEditMode(editMode === 'erase' ? 'none' : 'erase')}
-                title="擦除"
+                title={editMode === 'erase' ? "退出擦除模式" : "进入擦除模式：涂抹去除未扣干净的部分"}
               >
                 <span className="btn-icon">🧹</span>
                 擦除
@@ -823,7 +854,7 @@ function App() {
               <button
                 className={`btn ${editMode === 'restore' ? 'btn-active' : 'btn-outline'}`}
                 onClick={() => setEditMode(editMode === 'restore' ? 'none' : 'restore')}
-                title="修补"
+                title={editMode === 'restore' ? "退出修补模式" : "进入修补模式：涂抹恢复被误扣的背景"}
               >
                 <span className="btn-icon">✏️</span>
                 修补
@@ -832,7 +863,7 @@ function App() {
                 className="btn btn-outline"
                 onClick={handleUndo}
                 disabled={historyIndex <= 0}
-                title="撤回"
+                title={historyIndex <= 0 ? "没有可撤回的步骤" : `撤回上一步操作 (剩余${historyIndex}步)`}
               >
                 <span className="btn-icon">↩️</span>
                 撤回
