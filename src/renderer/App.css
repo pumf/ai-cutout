@@ -274,7 +274,24 @@ body {
 /* Toolbar */
 .toolbar {
   display: flex;
-  gap: 12px;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  background: rgba(0, 0, 0, 0.03);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-color);
+}
+
+.toolbar-tools {
+  display: flex;
+  gap: 4px;
 }
 
 .btn {
@@ -297,6 +314,26 @@ body {
 
 .btn-icon {
   font-size: 16px;
+}
+
+.btn-icon-only {
+  padding: 8px 10px;
+  min-width: 36px;
+  justify-content: center;
+}
+
+.btn-badge {
+  font-size: 11px;
+  font-weight: 600;
+  margin-left: 4px;
+  padding: 2px 4px;
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 4px;
+  color: var(--text-secondary);
+}
+
+.btn-icon-only .btn-icon {
+  font-size: 18px;
 }
 
 .btn-primary {
@@ -349,10 +386,16 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 0 8px;
+  padding: 0 10px;
   background: var(--bg-color);
   border-radius: var(--radius-md);
-  height: 40px;
+  height: 36px;
+  border: 1px solid var(--border-color);
+}
+
+.brush-control.compact {
+  padding: 0 8px;
+  height: 32px;
 }
 
 .brush-label {
@@ -710,19 +753,50 @@ body {
 }
 
 /* Responsive */
+@media (max-width: 900px) {
+  .toolbar {
+    gap: 6px;
+  }
+
+  .toolbar-group {
+    padding: 3px 6px;
+  }
+
+  .btn-text {
+    display: none;
+  }
+
+  .btn {
+    padding: 8px 12px;
+  }
+
+  .btn-icon-only {
+    padding: 8px;
+    min-width: 32px;
+  }
+
+  .brush-control {
+    padding: 0 6px;
+  }
+
+  .brush-slider {
+    width: 80px;
+  }
+}
+
 @media (max-width: 768px) {
   .workspace {
     grid-template-columns: 1fr;
   }
-  
+
   .toolbar {
     flex-wrap: wrap;
-  }
-  
-  .btn {
-    flex: 1;
     justify-content: center;
-    min-width: 120px;
+  }
+
+  .toolbar-group {
+    flex-wrap: wrap;
+    justify-content: center;
   }
 }
 

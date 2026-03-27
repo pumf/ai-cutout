@@ -975,70 +975,70 @@ function App() {
 
       <main className="main">
         <div className="toolbar">
-          <button 
-            className="btn btn-primary" 
-            onClick={handleSelectImage}
-            title="选择本地图片文件 (支持 PNG, JPG, WebP)"
-          >
-            <span className="btn-icon">📁</span>
-            选择图片
-          </button>
-          <button
-            className="btn btn-success"
-            onClick={handleProcess}
-            disabled={!originalImage || isProcessing}
-            title={!originalImage ? "请先选择图片" : isProcessing ? "正在处理中..." : "使用AI模型去除背景"}
-          >
-            <span className="btn-icon">{isProcessing ? '⏳' : '✨'}</span>
-            {isProcessing ? '处理中...' : 'AI抠图'}
-          </button>
-          <button
-            className="btn btn-secondary"
-            onClick={processedImage ? handleSaveWithMask : handleSave}
-            disabled={!processedImage}
-            title={!processedImage ? "请先处理图片" : "保存处理结果为PNG图片"}
-          >
-            <span className="btn-icon">💾</span>
-            导出图片
-          </button>
-          
-          {/* Zoom Control Dropdown */}
-          <div className="toolbar-divider" />
-          <div className="zoom-control">
+          {/* 主要操作组 */}
+          <div className="toolbar-group">
             <button
-              className="btn btn-outline"
-              onClick={() => setShowZoomDropdown(!showZoomDropdown)}
-              title="设置缩放比例"
+              className="btn btn-primary"
+              onClick={handleSelectImage}
+              title="选择本地图片文件 (支持 PNG, JPG, WebP)"
             >
-              <span className="btn-icon">🔍</span>
-              {Math.round(scale * 100)}%
+              <span className="btn-icon">📁</span>
+              <span className="btn-text">选择</span>
             </button>
-            {showZoomDropdown && (
-              <div className="zoom-dropdown">
-                <div className="zoom-option" onClick={() => { setZoomScale(0.1); setShowZoomDropdown(false); }}>10%</div>
-                <div className="zoom-option" onClick={() => { setZoomScale(0.25); setShowZoomDropdown(false); }}>25%</div>
-                <div className="zoom-option" onClick={() => { setZoomScale(0.5); setShowZoomDropdown(false); }}>50%</div>
-                <div className="zoom-option" onClick={() => { setZoomScale(0.75); setShowZoomDropdown(false); }}>75%</div>
-                <div className="zoom-option" onClick={() => { setZoomScale(1); setShowZoomDropdown(false); }}>100%</div>
-                <div className="zoom-option" onClick={() => { setZoomScale(1.5); setShowZoomDropdown(false); }}>150%</div>
-                <div className="zoom-option" onClick={() => { setZoomScale(2); setShowZoomDropdown(false); }}>200%</div>
-                <div className="zoom-option zoom-option-fit" onClick={() => { fitToPanel(); setShowZoomDropdown(false); }}>适应屏幕</div>
-              </div>
-            )}
+            <button
+              className="btn btn-success"
+              onClick={handleProcess}
+              disabled={!originalImage || isProcessing}
+              title={!originalImage ? "请先选择图片" : isProcessing ? "正在处理中..." : "使用AI模型去除背景"}
+            >
+              <span className="btn-icon">{isProcessing ? '⏳' : '✨'}</span>
+              <span className="btn-text">{isProcessing ? '处理中' : '抠图'}</span>
+            </button>
+            <button
+              className="btn btn-secondary"
+              onClick={processedImage ? handleSaveWithMask : handleSave}
+              disabled={!processedImage}
+              title={!processedImage ? "请先处理图片" : "保存处理结果为PNG图片"}
+            >
+              <span className="btn-icon">💾</span>
+              <span className="btn-text">导出</span>
+            </button>
           </div>
 
-          {/* Background Picker */}
-          {processedImage && (
-            <>
-              <div className="toolbar-divider" />
+          {/* 视图控制组 */}
+          <div className="toolbar-group">
+            <div className="zoom-control">
+              <button
+                className="btn btn-icon-only"
+                onClick={() => setShowZoomDropdown(!showZoomDropdown)}
+                title="缩放"
+              >
+                <span className="btn-icon">🔍</span>
+                <span className="btn-badge">{Math.round(scale * 100)}%</span>
+              </button>
+              {showZoomDropdown && (
+                <div className="zoom-dropdown">
+                  <div className="zoom-option" onClick={() => { setZoomScale(0.1); setShowZoomDropdown(false); }}>10%</div>
+                  <div className="zoom-option" onClick={() => { setZoomScale(0.25); setShowZoomDropdown(false); }}>25%</div>
+                  <div className="zoom-option" onClick={() => { setZoomScale(0.5); setShowZoomDropdown(false); }}>50%</div>
+                  <div className="zoom-option" onClick={() => { setZoomScale(0.75); setShowZoomDropdown(false); }}>75%</div>
+                  <div className="zoom-option" onClick={() => { setZoomScale(1); setShowZoomDropdown(false); }}>100%</div>
+                  <div className="zoom-option" onClick={() => { setZoomScale(1.5); setShowZoomDropdown(false); }}>150%</div>
+                  <div className="zoom-option" onClick={() => { setZoomScale(2); setShowZoomDropdown(false); }}>200%</div>
+                  <div className="zoom-option zoom-option-fit" onClick={() => { fitToPanel(); setShowZoomDropdown(false); }}>适应屏幕</div>
+                </div>
+              )}
+            </div>
+
+            {/* Background Picker */}
+            {processedImage && (
               <div className="bg-picker">
                 <button
-                  className="btn btn-outline"
+                  className="btn btn-icon-only"
                   onClick={() => setShowBgPicker(!showBgPicker)}
-                  title="设置背景颜色或图片"
+                  title="背景"
                 >
                   <span className="btn-icon">🎨</span>
-                  背景
                 </button>
                 {showBgPicker && (
                   <div className="bg-picker-dropdown">
@@ -1151,40 +1151,39 @@ function App() {
                   </div>
                 )}
               </div>
-            </>
-          )}
+            )}
+          </div>
 
+          {/* 编辑工具组 */}
           {processedImage && (
-            <>
-              <div className="toolbar-divider" />
-              <button
-                className={`btn ${editMode === 'erase' ? 'btn-active' : 'btn-outline'}`}
-                onClick={() => setEditMode(editMode === 'erase' ? 'none' : 'erase')}
-                title={editMode === 'erase' ? "退出擦除模式" : "进入擦除模式：涂抹去除未扣干净的部分"}
-              >
-                <span className="btn-icon">🧹</span>
-                擦除
-              </button>
-              <button
-                className={`btn ${editMode === 'restore' ? 'btn-active' : 'btn-outline'}`}
-                onClick={() => setEditMode(editMode === 'restore' ? 'none' : 'restore')}
-                title={editMode === 'restore' ? "退出修补模式" : "进入修补模式：涂抹恢复被误扣的背景"}
-              >
-                <span className="btn-icon">✏️</span>
-                修补
-              </button>
-              <button
-                className="btn btn-outline"
-                onClick={handleUndo}
-                disabled={historyIndex <= 0}
-                title={historyIndex <= 0 ? "没有可撤回的步骤" : `撤回上一步操作 (剩余${historyIndex}步)`}
-              >
-                <span className="btn-icon">↩️</span>
-                撤回
-              </button>
+            <div className="toolbar-group">
+              <div className="toolbar-tools">
+                <button
+                  className={`btn btn-icon-only ${editMode === 'erase' ? 'btn-active' : ''}`}
+                  onClick={() => setEditMode(editMode === 'erase' ? 'none' : 'erase')}
+                  title={editMode === 'erase' ? "退出擦除" : "擦除"}
+                >
+                  <span className="btn-icon">🧹</span>
+                </button>
+                <button
+                  className={`btn btn-icon-only ${editMode === 'restore' ? 'btn-active' : ''}`}
+                  onClick={() => setEditMode(editMode === 'restore' ? 'none' : 'restore')}
+                  title={editMode === 'restore' ? "退出修补" : "修补"}
+                >
+                  <span className="btn-icon">✏️</span>
+                </button>
+                <button
+                  className="btn btn-icon-only"
+                  onClick={handleUndo}
+                  disabled={historyIndex <= 0}
+                  title={historyIndex <= 0 ? "无法撤回" : `撤回 (${historyIndex})`}
+                >
+                  <span className="btn-icon">↩️</span>
+                </button>
+              </div>
+
               {editMode !== 'none' && (
-                <div className="brush-control">
-                  <span className="brush-label">画笔:</span>
+                <div className="brush-control compact">
                   <input
                     type="range"
                     min="5"
@@ -1192,11 +1191,12 @@ function App() {
                     value={brushSize}
                     onChange={(e) => setBrushSize(Number(e.target.value))}
                     className="brush-slider"
+                    title="画笔大小"
                   />
                   <span className="brush-value">{brushSize}px</span>
                 </div>
               )}
-            </>
+            </div>
           )}
         </div>
 
