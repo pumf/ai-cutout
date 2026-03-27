@@ -29,7 +29,8 @@ function App() {
   const [historyIndex, setHistoryIndex] = useState(-1);
   const [isOriginalDragging, setIsOriginalDragging] = useState(false);
   const [showZoomDropdown, setShowZoomDropdown] = useState(false);
-  const [isMouseInPanel, setIsMouseInPanel] = useState(false);
+  const [isMouseInOriginalPanel, setIsMouseInOriginalPanel] = useState(false);
+  const [isMouseInResultPanel, setIsMouseInResultPanel] = useState(false);
   
   // Background settings
   const [bgColor, setBgColor] = useState<string>('transparent');
@@ -41,6 +42,7 @@ function App() {
   const [brushTooltipPos, setBrushTooltipPos] = useState({ x: 0, y: 0 });
   const brushSliderRef = useRef<HTMLInputElement>(null);
   const bgPickerRef = useRef<HTMLDivElement>(null);
+  const zoomControlRef = useRef<HTMLDivElement>(null);
 
   // Use refs for virtual cursor elements to avoid React re-render
   const originalCursorRef = useRef<HTMLDivElement>(null);
@@ -508,6 +510,22 @@ function App() {
       };
     }
   }, [showBgPicker]);
+
+  // Close zoom dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (zoomControlRef.current && !zoomControlRef.current.contains(event.target as Node)) {
+        setShowZoomDropdown(false);
+      }
+    };
+
+    if (showZoomDropdown) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => {
+        document.removeEventListener('mousedown', handleClickOutside);
+      };
+    }
+  }, [showZoomDropdown]);
 
   // Save mask state
   const saveMaskState = () => {
@@ -1029,7 +1047,7 @@ function App() {
 
           {/* 视图控制组 */}
           <div className="toolbar-group">
-            <div className="zoom-control">
+            <div ref={zoomControlRef} className="zoom-control">
               <button
                 className="btn btn-icon-only"
                 onClick={() => setShowZoomDropdown(!showZoomDropdown)}
@@ -1282,14 +1300,14 @@ function App() {
                 }
               }}
               onMouseUp={editMode === 'none' ? handleMouseUp : handleOriginalMouseUp}
-              onMouseEnter={() => setIsMouseInPanel(true)}
+              onMouseEnter={() => setIsMouseInOriginalPanel(true)}
               onMouseLeave={() => {
                 if (editMode === 'none') {
                   handleMouseUp();
                 } else {
                   handleOriginalMouseUp();
                 }
-                setIsMouseInPanel(false);
+                setIsMouseInOriginalPanel(false);
               }}
             >
               <div
@@ -1309,7 +1327,7 @@ function App() {
                 )}
               </div>
               {/* Virtual cursor in original panel */}
-              {(editMode !== 'none' && isMouseInPanel) || isAdjustingBrush && (
+              {(editMode !== 'none' && isMouseInOriginalPanel) || isAdjustingBrush && (
                 <div
                   ref={originalCursorRef}
                   className="virtual-cursor"
@@ -1384,14 +1402,14 @@ function App() {
                 }
               }}
               onMouseUp={editMode === 'none' ? handleMouseUp : handleDrawEnd}
-              onMouseEnter={() => setIsMouseInPanel(true)}
+              onMouseEnter={() => setIsMouseInResultPanel(true)}
               onMouseLeave={() => {
                 if (editMode === 'none') {
                   handleMouseUp();
                 } else {
                   handleDrawEnd();
                 }
-                setIsMouseInPanel(false);
+                setIsMouseInResultPanel(false);
               }}
             >
               <div
@@ -1427,7 +1445,7 @@ function App() {
                 )}
               </div>
               {/* Virtual cursor in result panel */}
-              {(editMode !== 'none' && isMouseInPanel) || isAdjustingBrush && (
+              {(editMode !== 'none' && isMouseInResultPanel) || isAdjustingBrush && (
                 <div
                   ref={resultCursorRef}
                   className="virtual-cursor"
