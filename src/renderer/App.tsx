@@ -28,6 +28,7 @@ function App() {
   const [maskHistory, setMaskHistory] = useState<ImageData[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
   const [isOriginalDragging, setIsOriginalDragging] = useState(false);
+  const [showZoomDropdown, setShowZoomDropdown] = useState(false);
   
   // Use refs for virtual cursor elements to avoid React re-render
   const originalCursorRef = useRef<HTMLDivElement>(null);
@@ -48,7 +49,8 @@ function App() {
   const handleZoom = useCallback((e: WheelEvent, panelRef: React.RefObject<HTMLDivElement>) => {
     e.preventDefault();
     const delta = e.deltaY > 0 ? 0.9 : 1.1;
-    const newScale = Math.max(0.1, Math.min(10, scale * delta));
+    // Min scale 1% (0.01), max scale unlimited
+    const newScale = Math.max(0.01, scale * delta);
     
     if (panelRef.current) {
       const rect = panelRef.current.getBoundingClientRect();
@@ -57,15 +59,12 @@ function App() {
       const mouseY = e.clientY - rect.top;
       
       // Calculate the world coordinate of the mouse position before zoom
-      // worldX = (mouseX - panelCenterX - translateX) / scale
       const panelCenterX = rect.width / 2;
       const panelCenterY = rect.height / 2;
       const worldX = (mouseX - panelCenterX - translateX) / scale;
       const worldY = (mouseY - panelCenterY - translateY) / scale;
       
       // After zoom, we want the same world coordinate to be at the same screen position
-      // mouseX = panelCenterX + translateX' + worldX * newScale
-      // translateX' = mouseX - panelCenterX - worldX * newScale
       const newTranslateX = mouseX - panelCenterX - worldX * newScale;
       const newTranslateY = mouseY - panelCenterY - worldY * newScale;
       
@@ -75,6 +74,40 @@ function App() {
     
     setScale(newScale);
   }, [scale, translateX, translateY]);
+
+  // Set specific zoom scale
+  const setZoomScale = (targetScale: number) => {
+    const newScale = Math.max(0.01, targetScale);
+    setScale(newScale);
+    setTranslateX(0);
+    setTranslateY(0);
+  };
+
+  // Fit image to panel
+  const fitToPanel = () => {
+    if (originalPanelRef.current && originalImage) {
+      const img = new Image();
+      img.onload = () => {
+        const panel = originalPanelRef.current;
+        if (panel) {
+          const panelW = panel.clientWidth;
+          const panelH = panel.clientHeight;
+          const imgW = img.naturalWidth;
+          const imgH = img.naturalHeight;
+          
+          // Calculate scale to fit the entire image within panel
+          const scaleW = panelW / imgW;
+          const scaleH = panelH / imgH;
+          const fitScale = Math.min(scaleW, scaleH);
+          
+          setScale(fitScale);
+          setTranslateX(0);
+          setTranslateY(0);
+        }
+      };
+      img.src = originalImage;
+    }
+  };
 
   useEffect(() => {
     const handleOriginalWheel = (e: WheelEvent) => handleZoom(e, originalPanelRef);
@@ -851,6 +884,32 @@ function App() {
             <span className="btn-icon">💾</span>
             导出图片
           </button>
+          
+          {/* Zoom Control Dropdown */}
+          <div className="toolbar-divider" />
+          <div className="zoom-control">
+            <button
+              className="btn btn-outline"
+              onClick={() => setShowZoomDropdown(!showZoomDropdown)}
+              title="设置缩放比例"
+            >
+              <span className="btn-icon">🔍</span>
+              {Math.round(scale * 100)}%
+            </button>
+            {showZoomDropdown && (
+              <div className="zoom-dropdown">
+                <div className="zoom-option" onClick={() => { setZoomScale(0.1); setShowZoomDropdown(false); }}>10%</div>
+                <div className="zoom-option" onClick={() => { setZoomScale(0.25); setShowZoomDropdown(false); }}>25%</div>
+                <div className="zoom-option" onClick={() => { setZoomScale(0.5); setShowZoomDropdown(false); }}>50%</div>
+                <div className="zoom-option" onClick={() => { setZoomScale(0.75); setShowZoomDropdown(false); }}>75%</div>
+                <div className="zoom-option" onClick={() => { setZoomScale(1); setShowZoomDropdown(false); }}>100%</div>
+                <div className="zoom-option" onClick={() => { setZoomScale(1.5); setShowZoomDropdown(false); }}>150%</div>
+                <div className="zoom-option" onClick={() => { setZoomScale(2); setShowZoomDropdown(false); }}>200%</div>
+                <div className="zoom-option zoom-option-fit" onClick={() => { fitToPanel(); setShowZoomDropdown(false); }}>适应屏幕</div>
+              </div>
+            )}
+          </div>
+          
           {processedImage && (
             <>
               <div className="toolbar-divider" />
