@@ -1285,8 +1285,9 @@ function App() {
                 const originalCursor = originalCursorRef.current;
                 const resultCursor = resultCursorRef.current;
                 if (originalCursor) {
-                  originalCursor.style.left = `${e.clientX - originalCursor.parentElement!.getBoundingClientRect().left}px`;
-                  originalCursor.style.top = `${e.clientY - originalCursor.parentElement!.getBoundingClientRect().top}px`;
+                  const originalRect = originalCursor.parentElement!.getBoundingClientRect();
+                  originalCursor.style.left = `${e.clientX - originalRect.left}px`;
+                  originalCursor.style.top = `${e.clientY - originalRect.top}px`;
                 }
                 if (resultCursor && resultPanelRef.current) {
                   const resultRect = resultPanelRef.current.getBoundingClientRect();
@@ -1327,17 +1328,15 @@ function App() {
                 )}
               </div>
               {/* Virtual cursor in original panel */}
-              {editMode !== 'none' && (
+              {(isAdjustingBrush || (editMode !== 'none' && (isMouseInOriginalPanel || isMouseInResultPanel))) && (
                 <div
                   ref={originalCursorRef}
                   className="virtual-cursor"
                   style={{
-                    left: '50%',
-                    top: '50%',
+                    left: isAdjustingBrush ? '50%' : undefined,
+                    top: isAdjustingBrush ? '50%' : undefined,
                     width: brushSize * scale,
                     height: brushSize * scale,
-                    marginLeft: -(brushSize * scale) / 2,
-                    marginTop: -(brushSize * scale) / 2,
                     borderColor: isAdjustingBrush ? 'rgba(59, 130, 246, 0.8)' : (editMode === 'erase' ? 'rgba(239, 68, 68, 0.8)' : 'rgba(34, 197, 94, 0.8)'),
                     backgroundColor: isAdjustingBrush ? 'rgba(59, 130, 246, 0.3)' : (editMode === 'erase' ? 'rgba(239, 68, 68, 0.3)' : 'rgba(34, 197, 94, 0.3)')
                   }}
@@ -1387,8 +1386,9 @@ function App() {
                 const resultCursor = resultCursorRef.current;
                 const originalCursor = originalCursorRef.current;
                 if (resultCursor) {
-                  resultCursor.style.left = `${e.clientX - resultCursor.parentElement!.getBoundingClientRect().left}px`;
-                  resultCursor.style.top = `${e.clientY - resultCursor.parentElement!.getBoundingClientRect().top}px`;
+                  const resultRect = resultCursor.parentElement!.getBoundingClientRect();
+                  resultCursor.style.left = `${e.clientX - resultRect.left}px`;
+                  resultCursor.style.top = `${e.clientY - resultRect.top}px`;
                 }
                 if (originalCursor && originalPanelRef.current) {
                   const originalRect = originalPanelRef.current.getBoundingClientRect();
@@ -1445,17 +1445,15 @@ function App() {
                 )}
               </div>
               {/* Virtual cursor in result panel */}
-              {editMode !== 'none' && (
+              {(isAdjustingBrush || (editMode !== 'none' && (isMouseInOriginalPanel || isMouseInResultPanel))) && (
                 <div
                   ref={resultCursorRef}
                   className="virtual-cursor"
                   style={{
-                    left: '50%',
-                    top: '50%',
+                    left: isAdjustingBrush ? '50%' : undefined,
+                    top: isAdjustingBrush ? '50%' : undefined,
                     width: brushSize * scale,
                     height: brushSize * scale,
-                    marginLeft: -(brushSize * scale) / 2,
-                    marginTop: -(brushSize * scale) / 2,
                     borderColor: isAdjustingBrush ? 'rgba(59, 130, 246, 0.8)' : (editMode === 'erase' ? 'rgba(239, 68, 68, 0.8)' : 'rgba(34, 197, 94, 0.8)'),
                     backgroundColor: isAdjustingBrush ? 'rgba(59, 130, 246, 0.3)' : (editMode === 'erase' ? 'rgba(239, 68, 68, 0.3)' : 'rgba(34, 197, 94, 0.3)')
                   }}

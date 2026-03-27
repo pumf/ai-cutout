@@ -530,7 +530,7 @@ body {
   pointer-events: none;
   z-index: 100;
   will-change: left, top;
-  transform: translate3d(0, 0, 0);
+  transform: translate(-50%, -50%);
   backface-visibility: hidden;
 }
 
