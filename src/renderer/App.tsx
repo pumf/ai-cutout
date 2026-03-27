@@ -36,6 +36,12 @@ function App() {
   const [bgImage, setBgImage] = useState<string | null>(null);
   const [showBgPicker, setShowBgPicker] = useState(false);
 
+  // Brush slider tooltip state
+  const [isAdjustingBrush, setIsAdjustingBrush] = useState(false);
+  const [brushTooltipPos, setBrushTooltipPos] = useState({ x: 0, y: 0 });
+  const brushSliderRef = useRef<HTMLInputElement>(null);
+  const bgPickerRef = useRef<HTMLDivElement>(null);
+
   // Use refs for virtual cursor elements to avoid React re-render
   const originalCursorRef = useRef<HTMLDivElement>(null);
   const resultCursorRef = useRef<HTMLDivElement>(null);
@@ -486,6 +492,22 @@ function App() {
       img.src = processedImage;
     }
   }, [processedImage, originalImage]);
+
+  // Close bg picker when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (bgPickerRef.current && !bgPickerRef.current.contains(event.target as Node)) {
+        setShowBgPicker(false);
+      }
+    };
+
+    if (showBgPicker) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => {
+        document.removeEventListener('mousedown', handleClickOutside);
+      };
+    }
+  }, [showBgPicker]);
 
   // Save mask state
   const saveMaskState = () => {
@@ -1032,7 +1054,7 @@ function App() {
 
             {/* Background Picker */}
             {processedImage && (
-              <div className="bg-picker">
+              <div ref={bgPickerRef} className="bg-picker">
                 <button
                   className="btn btn-icon-only"
                   onClick={() => setShowBgPicker(!showBgPicker)}
@@ -1184,16 +1206,40 @@ function App() {
 
               {editMode !== 'none' && (
                 <div className="brush-control compact">
-                  <input
-                    type="range"
-                    min="5"
-                    max="100"
-                    value={brushSize}
-                    onChange={(e) => setBrushSize(Number(e.target.value))}
-                    className="brush-slider"
-                    title="画笔大小"
-                  />
-                  <span className="brush-value">{brushSize}px</span>
+                  <div className="brush-slider-wrapper">
+                    <input
+                      ref={brushSliderRef}
+                      type="range"
+                      min="5"
+                      max="100"
+                      value={brushSize}
+                      onChange={(e) => setBrushSize(Number(e.target.value))}
+                      onMouseDown={() => setIsAdjustingBrush(true)}
+                      onMouseUp={() => setIsAdjustingBrush(false)}
+                      onMouseLeave={() => setIsAdjustingBrush(false)}
+                      onMouseMove={(e) => {
+                        if (isAdjustingBrush) {
+                          const rect = brushSliderRef.current?.getBoundingClientRect();
+                          if (rect) {
+                            setBrushTooltipPos({ x: e.clientX - rect.left, y: -30 });
+                          }
+                        }
+                      }}
+                      className="brush-slider"
+                      title="画笔大小"
+                    />
+                    {isAdjustingBrush && (
+                      <div
+                        className="brush-tooltip"
+                        style={{
+                          left: brushTooltipPos.x,
+                          top: brushTooltipPos.y
+                        }}
+                      >
+                        {brushSize}px
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
@@ -1263,7 +1309,7 @@ function App() {
                 )}
               </div>
               {/* Virtual cursor in original panel */}
-              {editMode !== 'none' && isMouseInPanel && (
+              {(editMode !== 'none' && isMouseInPanel) || isAdjustingBrush && (
                 <div
                   ref={originalCursorRef}
                   className="virtual-cursor"
@@ -1274,8 +1320,8 @@ function App() {
                     height: brushSize * scale,
                     marginLeft: -(brushSize * scale) / 2,
                     marginTop: -(brushSize * scale) / 2,
-                    borderColor: editMode === 'erase' ? 'rgba(239, 68, 68, 0.8)' : 'rgba(34, 197, 94, 0.8)',
-                    backgroundColor: editMode === 'erase' ? 'rgba(239, 68, 68, 0.3)' : 'rgba(34, 197, 94, 0.3)'
+                    borderColor: isAdjustingBrush ? 'rgba(59, 130, 246, 0.8)' : (editMode === 'erase' ? 'rgba(239, 68, 68, 0.8)' : 'rgba(34, 197, 94, 0.8)'),
+                    backgroundColor: isAdjustingBrush ? 'rgba(59, 130, 246, 0.3)' : (editMode === 'erase' ? 'rgba(239, 68, 68, 0.3)' : 'rgba(34, 197, 94, 0.3)')
                   }}
                 />
               )}
@@ -1381,7 +1427,7 @@ function App() {
                 )}
               </div>
               {/* Virtual cursor in result panel */}
-              {editMode !== 'none' && isMouseInPanel && (
+              {(editMode !== 'none' && isMouseInPanel) || isAdjustingBrush && (
                 <div
                   ref={resultCursorRef}
                   className="virtual-cursor"
@@ -1392,8 +1438,8 @@ function App() {
                     height: brushSize * scale,
                     marginLeft: -(brushSize * scale) / 2,
                     marginTop: -(brushSize * scale) / 2,
-                    borderColor: editMode === 'erase' ? 'rgba(239, 68, 68, 0.8)' : 'rgba(34, 197, 94, 0.8)',
-                    backgroundColor: editMode === 'erase' ? 'rgba(239, 68, 68, 0.3)' : 'rgba(34, 197, 94, 0.3)'
+                    borderColor: isAdjustingBrush ? 'rgba(59, 130, 246, 0.8)' : (editMode === 'erase' ? 'rgba(239, 68, 68, 0.8)' : 'rgba(34, 197, 94, 0.8)'),
+                    backgroundColor: isAdjustingBrush ? 'rgba(59, 130, 246, 0.3)' : (editMode === 'erase' ? 'rgba(239, 68, 68, 0.3)' : 'rgba(34, 197, 94, 0.3)')
                   }}
                 />
               )}
