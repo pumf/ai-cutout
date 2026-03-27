@@ -27,10 +27,11 @@ function App() {
   const [isDrawing, setIsDrawing] = useState(false);
   const [maskHistory, setMaskHistory] = useState<ImageData[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
-  const [cursorStyle, setCursorStyle] = useState<string>('default');
-  const [virtualCursorPos, setVirtualCursorPos] = useState<{ x: number; y: number } | null>(null);
-  const [activePanel, setActivePanel] = useState<'original' | 'result' | null>(null);
   const [isOriginalDragging, setIsOriginalDragging] = useState(false);
+  
+  // Use refs for virtual cursor elements to avoid React re-render
+  const originalCursorRef = useRef<HTMLDivElement>(null);
+  const resultCursorRef = useRef<HTMLDivElement>(null);
   const [originalStartPos, setOriginalStartPos] = useState({ x: 0, y: 0 });
   const [originalStartTranslate, setOriginalStartTranslate] = useState({ x: 0, y: 0 });
 
@@ -344,55 +345,6 @@ function App() {
     // This function is kept for compatibility but auto-fit is done earlier
   };
 
-  // Generate circular brush cursor
-  const generateBrushCursor = (size: number, isErase: boolean) => {
-    const canvas = document.createElement('canvas');
-    const padding = 4;
-    canvas.width = size + padding * 2;
-    canvas.height = size + padding * 2;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return 'crosshair';
-
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    // Draw outer circle
-    ctx.beginPath();
-    ctx.arc(canvas.width / 2, canvas.height / 2, size / 2, 0, Math.PI * 2);
-    ctx.strokeStyle = 'rgba(0, 0, 0, 0.8)';
-    ctx.lineWidth = 2;
-    ctx.stroke();
-
-    // Draw inner fill
-    ctx.beginPath();
-    ctx.arc(canvas.width / 2, canvas.height / 2, size / 2 - 1, 0, Math.PI * 2);
-    ctx.fillStyle = isErase ? 'rgba(239, 68, 68, 0.3)' : 'rgba(34, 197, 94, 0.3)';
-    ctx.fill();
-
-    // Draw crosshair center
-    ctx.beginPath();
-    ctx.moveTo(canvas.width / 2 - 3, canvas.height / 2);
-    ctx.lineTo(canvas.width / 2 + 3, canvas.height / 2);
-    ctx.moveTo(canvas.width / 2, canvas.height / 2 - 3);
-    ctx.lineTo(canvas.width / 2, canvas.height / 2 + 3);
-    ctx.strokeStyle = 'rgba(0, 0, 0, 0.6)';
-    ctx.lineWidth = 1;
-    ctx.stroke();
-
-    return `url(${canvas.toDataURL()}) ${canvas.width / 2} ${canvas.height / 2}, crosshair`;
-  };
-
-  // Update cursor when brush size, edit mode or scale changes
-  useEffect(() => {
-    if (editMode !== 'none') {
-      // Scale brush size with image zoom level
-      const scaledBrushSize = brushSize * scale;
-      const cursor = generateBrushCursor(scaledBrushSize, editMode === 'erase');
-      setCursorStyle(cursor);
-    } else {
-      setCursorStyle('grab');
-    }
-  }, [brushSize, editMode, scale]);
-
   // Initialize canvases when processed image changes
   useEffect(() => {
     if (processedImage && outputCanvasRef.current && maskCanvasRef.current && originalImage && processedCanvasRef.current) {
@@ -589,50 +541,11 @@ function App() {
   // Handle mouse move in original panel to show virtual cursor in result panel
   const handleOriginalPanelMouseMove = (e: React.MouseEvent) => {
     if (editMode === 'none' || !originalPanelRef.current || !outputCanvasRef.current) return;
-
-    const originalPanel = originalPanelRef.current;
-    const resultPanel = resultPanelRef.current;
-    if (!resultPanel) return;
-
-    // Get mouse position relative to original panel
-    const originalRect = originalPanel.getBoundingClientRect();
-    const relativeX = (e.clientX - originalRect.left) / originalRect.width;
-    const relativeY = (e.clientY - originalRect.top) / originalRect.height;
-
-    // Map to result panel
-    const resultRect = resultPanel.getBoundingClientRect();
-    const resultX = relativeX * resultRect.width;
-    const resultY = relativeY * resultRect.height;
-
-    setVirtualCursorPos({ x: resultX, y: resultY });
-    setActivePanel('original');
   };
 
   // Handle mouse move in result panel to show virtual cursor in original panel
   const handleResultPanelMouseMove = (e: React.MouseEvent) => {
     if (editMode === 'none' || !resultPanelRef.current || !originalPanelRef.current) return;
-
-    const resultPanel = resultPanelRef.current;
-    const originalPanel = originalPanelRef.current;
-
-    // Get mouse position relative to result panel
-    const resultRect = resultPanel.getBoundingClientRect();
-    const relativeX = (e.clientX - resultRect.left) / resultRect.width;
-    const relativeY = (e.clientY - resultRect.top) / resultRect.height;
-
-    // Map to original panel
-    const originalRect = originalPanel.getBoundingClientRect();
-    const originalX = relativeX * originalRect.width;
-    const originalY = relativeY * originalRect.height;
-
-    setVirtualCursorPos({ x: originalX, y: originalY });
-    setActivePanel('result');
-  };
-
-  // Hide virtual cursor when mouse leaves panels
-  const handlePanelMouseLeave = () => {
-    setVirtualCursorPos(null);
-    setActivePanel(null);
   };
 
   // Original panel drag handlers for edit mode
@@ -950,7 +863,7 @@ function App() {
             <div
               ref={originalPanelRef}
               className={`panel-content ${dragActive ? 'drag-active' : ''} ${isDragging || isOriginalDragging ? 'dragging' : ''} ${editMode !== 'none' ? 'edit-mode' : ''}`}
-              style={{ cursor: editMode !== 'none' ? (isOriginalDragging ? 'grabbing' : cursorStyle) : 'grab' }}
+              style={{ cursor: editMode !== 'none' ? (isOriginalDragging ? 'grabbing' : 'none') : 'grab' }}
               onDrop={handleDrop}
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}
@@ -959,6 +872,23 @@ function App() {
               onMouseMove={editMode === 'none' ? handleMouseMove : (e) => {
                 handleOriginalPanelMouseMove(e);
                 handleOriginalMouseMove(e);
+                // Update both cursors simultaneously
+                const originalCursor = originalCursorRef.current;
+                const resultCursor = resultCursorRef.current;
+                if (originalCursor) {
+                  originalCursor.style.left = `${e.clientX - originalCursor.parentElement!.getBoundingClientRect().left}px`;
+                  originalCursor.style.top = `${e.clientY - originalCursor.parentElement!.getBoundingClientRect().top}px`;
+                }
+                if (resultCursor && resultPanelRef.current) {
+                  const resultRect = resultPanelRef.current.getBoundingClientRect();
+                  const originalRect = originalPanelRef.current?.getBoundingClientRect();
+                  if (originalRect) {
+                    const relativeX = (e.clientX - originalRect.left) / originalRect.width;
+                    const relativeY = (e.clientY - originalRect.top) / originalRect.height;
+                    resultCursor.style.left = `${relativeX * resultRect.width}px`;
+                    resultCursor.style.top = `${relativeY * resultRect.height}px`;
+                  }
+                }
               }}
               onMouseUp={editMode === 'none' ? handleMouseUp : handleOriginalMouseUp}
               onMouseLeave={() => {
@@ -966,7 +896,6 @@ function App() {
                   handleMouseUp();
                 } else {
                   handleOriginalMouseUp();
-                  handlePanelMouseLeave();
                 }
               }}
             >
@@ -987,12 +916,13 @@ function App() {
                 )}
               </div>
               {/* Virtual cursor in original panel */}
-              {editMode !== 'none' && activePanel === 'result' && virtualCursorPos && (
+              {editMode !== 'none' && (
                 <div
+                  ref={originalCursorRef}
                   className="virtual-cursor"
                   style={{
-                    left: virtualCursorPos.x,
-                    top: virtualCursorPos.y,
+                    left: '50%',
+                    top: '50%',
                     width: brushSize * scale,
                     height: brushSize * scale,
                     marginLeft: -(brushSize * scale) / 2,
@@ -1038,11 +968,27 @@ function App() {
             <div
               ref={resultPanelRef}
               className={`panel-content result-panel ${isDragging ? 'dragging' : ''} ${editMode !== 'none' ? 'edit-mode' : ''}`}
-              style={{ cursor: cursorStyle }}
+              style={{ cursor: editMode !== 'none' ? 'default' : 'grab' }}
               onMouseDown={editMode === 'none' ? handleMouseDown : handleDrawStart}
               onMouseMove={editMode === 'none' ? handleMouseMove : (e) => {
                 handleDrawMove(e);
-                handleResultPanelMouseMove(e);
+                // Update both cursors simultaneously
+                const resultCursor = resultCursorRef.current;
+                const originalCursor = originalCursorRef.current;
+                if (resultCursor) {
+                  resultCursor.style.left = `${e.clientX - resultCursor.parentElement!.getBoundingClientRect().left}px`;
+                  resultCursor.style.top = `${e.clientY - resultCursor.parentElement!.getBoundingClientRect().top}px`;
+                }
+                if (originalCursor && originalPanelRef.current) {
+                  const originalRect = originalPanelRef.current.getBoundingClientRect();
+                  const resultRect = resultPanelRef.current?.getBoundingClientRect();
+                  if (resultRect) {
+                    const relativeX = (e.clientX - resultRect.left) / resultRect.width;
+                    const relativeY = (e.clientY - resultRect.top) / resultRect.height;
+                    originalCursor.style.left = `${relativeX * originalRect.width}px`;
+                    originalCursor.style.top = `${relativeY * originalRect.height}px`;
+                  }
+                }
               }}
               onMouseUp={editMode === 'none' ? handleMouseUp : handleDrawEnd}
               onMouseLeave={() => {
@@ -1050,7 +996,6 @@ function App() {
                   handleMouseUp();
                 } else {
                   handleDrawEnd();
-                  handlePanelMouseLeave();
                 }
               }}
             >
@@ -1082,12 +1027,13 @@ function App() {
                 )}
               </div>
               {/* Virtual cursor in result panel */}
-              {editMode !== 'none' && activePanel === 'original' && virtualCursorPos && (
+              {editMode !== 'none' && (
                 <div
+                  ref={resultCursorRef}
                   className="virtual-cursor"
                   style={{
-                    left: virtualCursorPos.x,
-                    top: virtualCursorPos.y,
+                    left: '50%',
+                    top: '50%',
                     width: brushSize * scale,
                     height: brushSize * scale,
                     marginLeft: -(brushSize * scale) / 2,
