@@ -358,6 +358,17 @@ body {
   box-shadow: var(--shadow-md);
 }
 
+.btn-error {
+  background: #ef4444;
+  color: white;
+}
+
+.btn-error:hover:not(:disabled) {
+  background: #dc2626;
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
 .btn-secondary {
   background: var(--surface-color);
   color: var(--text-primary);

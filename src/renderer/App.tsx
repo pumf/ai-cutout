@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import './App.css';
+import { GifReader, GifWriter } from 'omggif';
 
 function App() {
   const [originalImage, setOriginalImage] = useState<string | null>(null);
@@ -58,6 +59,12 @@ function App() {
   const [showPasteConfirm, setShowPasteConfirm] = useState(false);
   const [pendingImageUrl, setPendingImageUrl] = useState<string | null>(null);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
+
+  // GIF processing state
+  const [isGifProcessing, setIsGifProcessing] = useState(false);
+  const [gifProgress, setGifProgress] = useState({ current: 0, total: 0 });
+  const [isOriginalGif, setIsOriginalGif] = useState(false);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   // Use refs for virtual cursor elements to avoid React re-render
   const originalCursorRef = useRef<HTMLDivElement>(null);
@@ -316,6 +323,381 @@ function App() {
     reader.readAsDataURL(file);
   };
 
+  // Process a single image frame
+  const processImageFrame = async (base64Data: string): Promise<Blob> => {
+    const res = await fetch('http://127.0.0.1:8765/process', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image: base64Data })
+    });
+    
+    if (!res.ok) throw new Error('处理失败');
+    return await res.blob();
+  };
+
+  // Cancel GIF processing
+  const cancelGifProcessing = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    setIsGifProcessing(false);
+    setGifProgress({ current: 0, total: 0 });
+    showToast('已取消 GIF 处理', 'info');
+  };
+
+  // Helper function to quantize colors and create palette with transparency support
+  const createPalette = (rgbaData: Uint8Array, maxColors: number = 255): { palette: number[]; indices: Uint8Array; transparentIndex: number | null } => {
+    // Check if data is valid
+    if (!rgbaData || rgbaData.length === 0) {
+      // Return minimum palette with transparency support
+      return { 
+        palette: [0, 0, 0, 255, 255, 255], 
+        indices: new Uint8Array(1),
+        transparentIndex: 0
+      };
+    }
+    
+    // Simple quantization: collect unique colors
+    const colorMap = new Map<string, number>();
+    const palette: number[] = [];
+    const indices = new Uint8Array(rgbaData.length / 4);
+    let hasTransparentPixels = false;
+    const transparentThreshold = 128; // Alpha < 128 is considered transparent
+    
+    // Reserve index 0 for transparent color
+    palette.push(0, 0, 0); // Black color for transparent index
+    
+    for (let i = 0; i < rgbaData.length; i += 4) {
+      const r = rgbaData[i];
+      const g = rgbaData[i + 1];
+      const b = rgbaData[i + 2];
+      const a = rgbaData[i + 3];
+      
+      // Check if pixel is transparent
+      if (a < transparentThreshold) {
+        indices[i / 4] = 0; // Index 0 is reserved for transparent
+        hasTransparentPixels = true;
+        continue;
+      }
+      
+      // Use color as key (ignore alpha for palette)
+      const colorKey = `${r},${g},${b}`;
+      
+      let colorIndex = colorMap.get(colorKey);
+      if (colorIndex === undefined) {
+        // Reserve one slot for transparency, so maxColors - 1 for actual colors
+        if (palette.length / 3 < maxColors) {
+          colorIndex = palette.length / 3;
+          colorMap.set(colorKey, colorIndex);
+          palette.push(r, g, b);
+        } else {
+          // Find closest color in palette (skip index 0 which is for transparency)
+          colorIndex = 1;
+          let minDistance = Infinity;
+          for (let j = 3; j < palette.length; j += 3) {
+            const pr = palette[j];
+            const pg = palette[j + 1];
+            const pb = palette[j + 2];
+            const distance = Math.sqrt(
+              Math.pow(r - pr, 2) + 
+              Math.pow(g - pg, 2) + 
+              Math.pow(b - pb, 2)
+            );
+            if (distance < minDistance) {
+              minDistance = distance;
+              colorIndex = j / 3;
+            }
+          }
+        }
+      }
+      
+      indices[i / 4] = colorIndex;
+    }
+    
+    // Ensure palette size is power of 2 (2, 4, 8, 16, 32, 64, 128, 256)
+    let numColors = palette.length / 3;
+    
+    // Always use at least 2 colors (minimum required)
+    if (numColors < 2) {
+      palette.push(255, 255, 255);
+      numColors = 2;
+    }
+    
+    // Find the next power of 2
+    let targetSize = 2;
+    while (targetSize < numColors && targetSize < 256) {
+      targetSize *= 2;
+    }
+    
+    // Fill remaining palette with black to reach targetSize
+    while (palette.length / 3 < targetSize) {
+      palette.push(0, 0, 0);
+    }
+    
+    // Final validation
+    let finalColorCount = palette.length / 3;
+    const validSizes = [2, 4, 8, 16, 32, 64, 128, 256];
+    
+    if (!validSizes.includes(finalColorCount)) {
+      if (finalColorCount > 256) {
+        palette.length = 256 * 3;
+      } else {
+        let validSize = 256;
+        for (const size of [...validSizes].reverse()) {
+          if (size <= finalColorCount) {
+            validSize = size;
+            break;
+          }
+        }
+        while (palette.length / 3 > validSize) {
+          palette.pop();
+          palette.pop();
+          palette.pop();
+        }
+        while (palette.length / 3 < validSize) {
+          palette.push(0, 0, 0);
+        }
+      }
+      finalColorCount = palette.length / 3;
+    }
+    
+    return { 
+      palette, 
+      indices, 
+      transparentIndex: hasTransparentPixels ? 0 : null 
+    };
+  };
+
+  // Process GIF file
+  const processGif = async (gifBuffer: ArrayBuffer, originalUrl: string) => {
+    abortControllerRef.current = new AbortController();
+    const signal = abortControllerRef.current.signal;
+    
+    try {
+      setIsGifProcessing(true);
+      showToast('正在处理 GIF 动画...', 'info');
+      
+      // Parse GIF
+      let gifReader;
+      try {
+        gifReader = new GifReader(new Uint8Array(gifBuffer));
+      } catch (parseErr) {
+        throw new Error(`GIF 解析失败: ${(parseErr as Error).message}`);
+      }
+      
+      const numFrames = gifReader.numFrames();
+      const width = gifReader.width;
+      const height = gifReader.height;
+      
+      if (numFrames === 0) {
+        throw new Error('GIF 文件不包含任何帧');
+      }
+      
+      setGifProgress({ current: 0, total: numFrames });
+      
+      // Create canvas for reading processed frames
+      const processedCanvas = document.createElement('canvas');
+      processedCanvas.width = width;
+      processedCanvas.height = height;
+      const processedCtx = processedCanvas.getContext('2d', { willReadFrequently: true });
+      if (!processedCtx) throw new Error('无法创建 processed canvas context');
+      
+      // Process each frame
+      const processedFrames: { indices: Uint8Array; palette: number[]; delay: number; transparentIndex: number | null }[] = [];
+      
+      for (let i = 0; i < numFrames; i++) {
+        // Check if cancelled
+        if (signal.aborted) {
+          throw new Error('Cancelled');
+        }
+        
+        setGifProgress({ current: i + 1, total: numFrames });
+        
+        // Decode frame info
+        const frameInfo = gifReader.frameInfo(i);
+        
+        // Use decodeAndBlitFrameRGBA to get the complete frame
+        // This method composites all previous frames up to this frame
+        const pixels = new Uint8Array(width * height * 4);
+        gifReader.decodeAndBlitFrameRGBA(i, pixels);
+        
+        // Create a fresh canvas for this frame
+        const frameCanvas = document.createElement('canvas');
+        frameCanvas.width = width;
+        frameCanvas.height = height;
+        const frameCtx = frameCanvas.getContext('2d', { willReadFrequently: true });
+        if (!frameCtx) throw new Error('无法创建 frame canvas context');
+        
+        // Put pixels on canvas
+        const imageData = frameCtx.createImageData(width, height);
+        imageData.data.set(pixels);
+        frameCtx.putImageData(imageData, 0, 0);
+        
+        // Convert to base64
+        const frameBase64 = frameCanvas.toDataURL('image/png').replace(/^data:image\/png;base64,/, '');
+        
+        // Process frame
+        try {
+          const processedBlob = await processImageFrame(frameBase64);
+          
+          // Read processed image back to get pixel data
+          const processedUrl = URL.createObjectURL(processedBlob);
+          const img = new Image();
+          await new Promise<void>((resolve, reject) => {
+            img.onload = () => resolve();
+            img.onerror = () => reject(new Error('处理后的图片加载失败'));
+            img.src = processedUrl;
+          });
+          
+          processedCtx.clearRect(0, 0, width, height);
+          processedCtx.drawImage(img, 0, 0);
+          URL.revokeObjectURL(processedUrl);
+          
+          // Get pixel data - create a copy to ensure we have Uint8Array
+          const processedImageData = processedCtx.getImageData(0, 0, width, height);
+          
+          // Create palette and indexed data for GIF
+          const processedPixels = new Uint8Array(processedImageData.data.length);
+          processedPixels.set(processedImageData.data);
+          const { palette, indices, transparentIndex } = createPalette(processedPixels);
+          
+          processedFrames.push({
+            indices,
+            palette,
+            delay: frameInfo.delay,
+            transparentIndex
+          });
+        } catch (err) {
+          // Retry processing the frame instead of using original
+          console.error(`第 ${i + 1} 帧处理失败，正在重试...`);
+          try {
+            // Retry once
+            const retryBlob = await processImageFrame(frameBase64);
+            const retryUrl = URL.createObjectURL(retryBlob);
+            const retryImg = new Image();
+            await new Promise<void>((resolve, reject) => {
+              retryImg.onload = () => resolve();
+              retryImg.onerror = () => reject(new Error('重试处理后的图片加载失败'));
+              retryImg.src = retryUrl;
+            });
+            
+            processedCtx.clearRect(0, 0, width, height);
+            processedCtx.drawImage(retryImg, 0, 0);
+            URL.revokeObjectURL(retryUrl);
+            
+            const retryImageData = processedCtx.getImageData(0, 0, width, height);
+            const retryPixels = new Uint8Array(retryImageData.data.length);
+            retryPixels.set(retryImageData.data);
+            const { palette: retryPalette, indices: retryIndices, transparentIndex: retryTransparentIndex } = createPalette(retryPixels);
+            
+            processedFrames.push({
+              indices: retryIndices,
+              palette: retryPalette,
+              delay: frameInfo.delay,
+              transparentIndex: retryTransparentIndex
+            });
+            console.log(`第 ${i + 1} 帧重试成功`);
+          } catch (retryErr) {
+            // If retry also fails, throw error to stop processing
+            throw new Error(`第 ${i + 1} 帧处理失败，已重试但仍失败`);
+          }
+        }
+      }
+      
+      // Check if cancelled
+      if (signal.aborted) {
+        throw new Error('Cancelled');
+      }
+      
+      if (processedFrames.length === 0) {
+        throw new Error('没有成功处理任何帧');
+      }
+      
+      // Create new GIF with larger buffer
+      const estimatedSize = width * height * numFrames * 4 + 10 * 1024 * 1024;
+      const outputBuffer = new Uint8Array(estimatedSize);
+      
+      let gifWriter;
+      try {
+        gifWriter = new GifWriter(outputBuffer, width, height, { loop: 0 });
+      } catch (writerErr) {
+        throw new Error(`GIF Writer 创建失败: ${(writerErr as Error).message}`);
+      }
+      
+      for (let i = 0; i < processedFrames.length; i++) {
+        const frame = processedFrames[i];
+        try {
+          // 验证调色板
+          if (!frame.palette || frame.palette.length === 0) {
+            throw new Error(`第 ${i + 1} 帧调色板为空`);
+          }
+          
+          // 验证索引数据
+          if (!frame.indices || frame.indices.length !== width * height) {
+            throw new Error(`第 ${i + 1} 帧索引数据无效: ${frame.indices?.length} != ${width * height}`);
+          }
+          
+          const numColors = frame.palette.length / 3;
+          const validSizes = [2, 4, 8, 16, 32, 64, 128, 256];
+          if (!validSizes.includes(numColors)) {
+            throw new Error(`第 ${i + 1} 帧调色板大小 ${numColors} 不是有效的2的幂次方`);
+          }
+          
+          // Convert palette to omggif format: array of 0xRRGGBB integers
+          const paletteForOmggif: number[] = [];
+          for (let j = 0; j < frame.palette.length; j += 3) {
+            const r = frame.palette[j];
+            const g = frame.palette[j + 1];
+            const b = frame.palette[j + 2];
+            paletteForOmggif.push((r << 16) | (g << 8) | b);
+          }
+          
+          // Build addFrame options
+          const addFrameOpts: { delay: number; palette: number[]; transparent?: number; disposal?: number } = {
+            delay: frame.delay,
+            palette: paletteForOmggif,
+            disposal: 2  // 2 = Restore to background color - clear frame after display
+          };
+          
+          // Add transparent index if there are transparent pixels
+          if (frame.transparentIndex !== null) {
+            addFrameOpts.transparent = frame.transparentIndex;
+          }
+          
+          gifWriter.addFrame(0, 0, width, height, frame.indices, addFrameOpts);
+        } catch (frameErr) {
+          throw new Error(`添加帧 ${i + 1} 失败: ${(frameErr as Error).message}`);
+        }
+      }
+      
+      let gifLength;
+      try {
+        gifLength = gifWriter.end();
+      } catch (endErr) {
+        throw new Error(`GIF 编码结束失败: ${(endErr as Error).message}`);
+      }
+      
+      const finalGif = outputBuffer.slice(0, gifLength);
+      
+      const blob = new Blob([finalGif], { type: 'image/gif' });
+      const url = URL.createObjectURL(blob);
+      setProcessedImage(url);
+      setIsOriginalGif(true);
+      showToast('GIF 抠图完成！', 'success');
+    } catch (err) {
+      if ((err as Error).message === 'Cancelled') {
+        return;
+      }
+      const errorMessage = (err as Error).message || '未知错误';
+      showToast(`GIF 处理失败: ${errorMessage}`, 'error');
+    } finally {
+      setIsGifProcessing(false);
+      setGifProgress({ current: 0, total: 0 });
+      abortControllerRef.current = null;
+    }
+  };
+
   const handleProcess = async () => {
     if (!originalImage) return;
     
@@ -325,21 +707,27 @@ function App() {
       return;
     }
     
+    // Check if it's a GIF
+    if (originalImage.startsWith('data:image/gif')) {
+      // Convert data URL to ArrayBuffer
+      const base64Data = originalImage.split(',')[1];
+      const binaryString = window.atob(base64Data);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+      await processGif(bytes.buffer, originalImage);
+      return;
+    }
+    
     setIsProcessing(true);
     try {
       const base64Data = originalImage.replace(/^data:image\/\w+;base64,/, '');
       
-      const res = await fetch('http://127.0.0.1:8765/process', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image: base64Data })
-      });
-      
-      if (!res.ok) throw new Error('处理失败');
-      
-      const blob = await res.blob();
+      const blob = await processImageFrame(base64Data);
       const url = URL.createObjectURL(blob);
       setProcessedImage(url);
+      setIsOriginalGif(false);
       showToast('AI 抠图完成！', 'success');
     } catch (e) {
       console.error('Processing failed:', e);
@@ -364,38 +752,14 @@ function App() {
 
     const file = e.dataTransfer.files[0];
     if (file && file.type.startsWith('image/')) {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const imageUrl = event.target?.result as string;
-        setOriginalImage(imageUrl);
-        setProcessedImage(null);
-
-        // Reset edit mode when selecting new image
-        setEditMode('none');
-
-        // Auto-fit image to panel - use cover mode to fill the panel
-        const img = new Image();
-        img.onload = () => {
-          const panel = originalPanelRef.current;
-          if (panel) {
-            const panelW = panel.clientWidth;
-            const panelH = panel.clientHeight;
-            const imgW = img.naturalWidth;
-            const imgH = img.naturalHeight;
-
-            // Calculate scale to cover the entire panel
-            const scaleW = panelW / imgW;
-            const scaleH = panelH / imgH;
-            const coverScale = Math.max(scaleW, scaleH);
-
-            setScale(coverScale);
-            setTranslateX(0);
-            setTranslateY(0);
-          }
-        };
-        img.src = imageUrl;
-      };
-      reader.readAsDataURL(file);
+      if (originalImage || processedImage) {
+        // Show confirmation if there's already an image
+        setPendingFile(file);
+        setShowPasteConfirm(true);
+      } else {
+        // Load directly if no image exists
+        loadFileImage(file);
+      }
     }
   };
 
@@ -460,14 +824,14 @@ function App() {
         originalCanvas.height = height;
 
         // Draw processed image to processedCanvas (store AI result)
-        const processedCtx = processedCanvas.getContext('2d');
+        const processedCtx = processedCanvas.getContext('2d', { willReadFrequently: true });
         if (processedCtx) {
           processedCtx.clearRect(0, 0, width, height);
           processedCtx.drawImage(img, 0, 0);
         }
 
         // Initialize mask with gray (128 = show AI processed)
-        const maskCtx = maskCanvas.getContext('2d');
+        const maskCtx = maskCanvas.getContext('2d', { willReadFrequently: true });
         if (maskCtx) {
           maskCtx.fillStyle = 'rgb(128, 128, 128)';
           maskCtx.fillRect(0, 0, width, height);
@@ -477,7 +841,7 @@ function App() {
         const originalImg = new Image();
         originalImg.crossOrigin = 'anonymous';
         originalImg.onload = () => {
-          const originalCtx = originalCanvas.getContext('2d');
+          const originalCtx = originalCanvas.getContext('2d', { willReadFrequently: true });
           if (originalCtx) {
             originalCtx.clearRect(0, 0, width, height);
             originalCtx.drawImage(originalImg, 0, 0);
@@ -494,7 +858,7 @@ function App() {
         // Save initial state
         setTimeout(() => {
           if (maskCanvasRef.current) {
-            const ctx = maskCanvasRef.current.getContext('2d');
+            const ctx = maskCanvasRef.current.getContext('2d', { willReadFrequently: true });
             if (ctx) {
               const imageData = ctx.getImageData(0, 0, maskCanvasRef.current.width, maskCanvasRef.current.height);
               setMaskHistory([imageData]);
@@ -695,7 +1059,7 @@ function App() {
   // Save mask state
   const saveMaskState = () => {
     if (maskCanvasRef.current) {
-      const ctx = maskCanvasRef.current.getContext('2d');
+      const ctx = maskCanvasRef.current.getContext('2d', { willReadFrequently: true });
       if (ctx) {
         const imageData = ctx.getImageData(0, 0, maskCanvasRef.current.width, maskCanvasRef.current.height);
         setMaskHistory(prev => {
@@ -717,10 +1081,10 @@ function App() {
     const originalCanvas = originalCanvasRef.current;
     const processedCanvas = processedCanvasRef.current;
 
-    const outputCtx = outputCanvas.getContext('2d');
-    const maskCtx = maskCanvas.getContext('2d');
-    const originalCtx = originalCanvas.getContext('2d');
-    const processedCtx = processedCanvas.getContext('2d');
+    const outputCtx = outputCanvas.getContext('2d', { willReadFrequently: true });
+    const maskCtx = maskCanvas.getContext('2d', { willReadFrequently: true });
+    const originalCtx = originalCanvas.getContext('2d', { willReadFrequently: true });
+    const processedCtx = processedCanvas.getContext('2d', { willReadFrequently: true });
 
     if (!outputCtx || !maskCtx || !originalCtx || !processedCtx) return;
 
@@ -766,7 +1130,7 @@ function App() {
   const handleUndo = () => {
     if (historyIndex > 0 && maskCanvasRef.current) {
       const newIndex = historyIndex - 1;
-      const ctx = maskCanvasRef.current.getContext('2d');
+      const ctx = maskCanvasRef.current.getContext('2d', { willReadFrequently: true });
       if (ctx && maskHistory[newIndex]) {
         ctx.putImageData(maskHistory[newIndex], 0, 0);
         setHistoryIndex(newIndex);
@@ -886,7 +1250,7 @@ function App() {
     const outputCanvas = outputCanvasRef.current;
     const processedCanvas = processedCanvasRef.current;
     const originalCanvas = originalCanvasRef.current;
-    const outputCtx = outputCanvas.getContext('2d');
+    const outputCtx = outputCanvas.getContext('2d', { willReadFrequently: true });
     
     if (!outputCtx) return;
 
@@ -919,7 +1283,7 @@ function App() {
     
     // Also record in mask canvas for history
     if (maskCanvasRef.current) {
-      const maskCtx = maskCanvasRef.current.getContext('2d');
+      const maskCtx = maskCanvasRef.current.getContext('2d', { willReadFrequently: true });
       if (maskCtx) {
         maskCtx.beginPath();
         maskCtx.arc(x, y, radius, 0, Math.PI * 2);
@@ -935,7 +1299,7 @@ function App() {
     const outputCanvas = outputCanvasRef.current;
     const processedCanvas = processedCanvasRef.current;
     const originalCanvas = originalCanvasRef.current;
-    const outputCtx = outputCanvas.getContext('2d');
+    const outputCtx = outputCanvas.getContext('2d', { willReadFrequently: true });
     
     if (!outputCtx) return;
 
@@ -981,7 +1345,7 @@ function App() {
     
     // Record in mask canvas
     if (maskCanvasRef.current) {
-      const maskCtx = maskCanvasRef.current.getContext('2d');
+      const maskCtx = maskCanvasRef.current.getContext('2d', { willReadFrequently: true });
       if (maskCtx) {
         maskCtx.fillStyle = editMode === 'erase' ? 'black' : 'white';
         for (let i = 0; i <= steps; i++) {
@@ -1008,7 +1372,7 @@ function App() {
     const composedCanvas = document.createElement('canvas');
     composedCanvas.width = width;
     composedCanvas.height = height;
-    const ctx = composedCanvas.getContext('2d');
+    const ctx = composedCanvas.getContext('2d', { willReadFrequently: true });
     if (!ctx) return null;
     
     // Draw background
@@ -1056,7 +1420,142 @@ function App() {
     return composedCanvas;
   };
 
+  // Compose GIF with background
+  const composeGifWithBackground = async (): Promise<Blob | null> => {
+    if (!processedImage || !isOriginalGif) return null;
+    
+    try {
+      const response = await fetch(processedImage);
+      const gifBuffer = await response.arrayBuffer();
+      
+      const gifReader = new GifReader(new Uint8Array(gifBuffer));
+      const numFrames = gifReader.numFrames();
+      const width = gifReader.width;
+      const height = gifReader.height;
+      
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      if (!ctx) return null;
+      
+      const estimatedSize = width * height * numFrames * 4 + 10 * 1024 * 1024;
+      const outputBuffer = new Uint8Array(estimatedSize);
+      const gifWriter = new GifWriter(outputBuffer, width, height, { loop: 0 });
+      
+      // Load background image if set
+      let bgImg: HTMLImageElement | null = null;
+      if (bgImage) {
+        bgImg = new Image();
+        await new Promise<void>((resolve, reject) => {
+          bgImg!.onload = () => resolve();
+          bgImg!.onerror = reject;
+          bgImg!.src = bgImage;
+        });
+      }
+      
+      // Process each frame
+      for (let i = 0; i < numFrames; i++) {
+        const frameInfo = gifReader.frameInfo(i);
+        const pixels = new Uint8Array(width * height * 4);
+        gifReader.decodeAndBlitFrameRGBA(i, pixels);
+        
+        ctx.clearRect(0, 0, width, height);
+        
+        // Draw background
+        if (bgImg) {
+          const imgRatio = bgImg.width / bgImg.height;
+          const canvasRatio = width / height;
+          let drawWidth, drawHeight, offsetX, offsetY;
+          
+          if (imgRatio > canvasRatio) {
+            drawHeight = height;
+            drawWidth = height * imgRatio;
+            offsetX = (width - drawWidth) / 2;
+            offsetY = 0;
+          } else {
+            drawWidth = width;
+            drawHeight = width / imgRatio;
+            offsetX = 0;
+            offsetY = (height - drawHeight) / 2;
+          }
+          ctx.drawImage(bgImg, offsetX, offsetY, drawWidth, drawHeight);
+        } else if (bgColor !== 'transparent') {
+          ctx.fillStyle = bgColor;
+          ctx.fillRect(0, 0, width, height);
+        }
+        
+        // Draw frame
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = width;
+        tempCanvas.height = height;
+        const tempCtx = tempCanvas.getContext('2d');
+        if (tempCtx) {
+          const imageData = tempCtx.createImageData(width, height);
+          imageData.data.set(pixels);
+          tempCtx.putImageData(imageData, 0, 0);
+          ctx.drawImage(tempCanvas, 0, 0);
+        }
+        
+        // Get composed data
+        const composedData = ctx.getImageData(0, 0, width, height);
+        const composedPixels = new Uint8Array(composedData.data);
+        const { palette, indices, transparentIndex } = createPalette(composedPixels);
+        
+        // Convert palette
+        const paletteForOmggif: number[] = [];
+        for (let j = 0; j < palette.length; j += 3) {
+          const r = palette[j], g = palette[j + 1], b = palette[j + 2];
+          paletteForOmggif.push((r << 16) | (g << 8) | b);
+        }
+        
+        const addFrameOpts: any = { 
+          delay: frameInfo.delay, 
+          palette: paletteForOmggif,
+          disposal: 2  // Clear frame after display to prevent overlap
+        };
+        if (transparentIndex !== null) addFrameOpts.transparent = transparentIndex;
+        
+        gifWriter.addFrame(0, 0, width, height, indices, addFrameOpts);
+      }
+      
+      const gifLength = gifWriter.end();
+      return new Blob([outputBuffer.slice(0, gifLength)], { type: 'image/gif' });
+    } catch (err) {
+      console.error('GIF composition failed:', err);
+      return null;
+    }
+  };
+
   const handleSaveWithMask = async () => {
+    // Check if it's a GIF
+    if (isOriginalGif && processedImage) {
+      // Check if background should be applied
+      if (bgImage || bgColor !== 'transparent') {
+        showToast('正在合成背景...', 'info');
+        const composedBlob = await composeGifWithBackground();
+        if (composedBlob) {
+          const url = URL.createObjectURL(composedBlob);
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = 'removed_bg_edited.gif';
+          link.click();
+          URL.revokeObjectURL(url);
+          showToast('GIF 已导出', 'success');
+        } else {
+          showToast('GIF 合成失败', 'error');
+        }
+      } else {
+        // No background, export as-is
+        const link = document.createElement('a');
+        link.href = processedImage;
+        link.download = 'removed_bg_edited.gif';
+        link.click();
+        showToast('GIF 已导出', 'success');
+      }
+      return;
+    }
+    
     const composedCanvas = await composeImageWithBackground();
     if (!composedCanvas) return;
     
@@ -1068,6 +1567,81 @@ function App() {
   };
 
   const handleCopyToClipboard = async () => {
+    // Check if it's a GIF
+    if (isOriginalGif && processedImage) {
+      try {
+        let blob: Blob;
+        
+        // Check if background should be applied
+        if (bgImage || bgColor !== 'transparent') {
+          showToast('正在合成背景...', 'info');
+          const composedBlob = await composeGifWithBackground();
+          if (!composedBlob) {
+            showToast('GIF 合成失败', 'error');
+            return;
+          }
+          blob = composedBlob;
+        } else {
+          const response = await fetch(processedImage);
+          blob = await response.blob();
+        }
+        
+        // Try to write as GIF first
+        try {
+          await navigator.clipboard.write([
+            new ClipboardItem({ 'image/gif': blob })
+          ]);
+          showToast('GIF 已复制到剪贴板', 'success');
+        } catch (writeErr) {
+          // If GIF format not supported, fall back to PNG (first frame only)
+          console.warn('GIF format not supported on clipboard, falling back to PNG');
+          
+          // Convert first frame to PNG
+          const img = new Image();
+          await new Promise<void>((resolve, reject) => {
+            img.onload = () => resolve();
+            img.onerror = reject;
+            img.src = processedImage;
+          });
+          
+          const canvas = document.createElement('canvas');
+          canvas.width = img.width;
+          canvas.height = img.height;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) throw new Error('无法创建 canvas context');
+          
+          // Draw background if set
+          if (bgImage) {
+            const bgImg = new Image();
+            await new Promise<void>((resolve, reject) => {
+              bgImg.onload = () => resolve();
+              bgImg.onerror = reject;
+              bgImg.src = bgImage;
+            });
+            ctx.drawImage(bgImg, 0, 0, canvas.width, canvas.height);
+          } else if (bgColor !== 'transparent') {
+            ctx.fillStyle = bgColor;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+          }
+          
+          ctx.drawImage(img, 0, 0);
+          
+          canvas.toBlob(async (pngBlob) => {
+            if (pngBlob) {
+              await navigator.clipboard.write([
+                new ClipboardItem({ 'image/png': pngBlob })
+              ]);
+              showToast('已复制第一帧为 PNG（动画丢失）', 'success');
+            }
+          }, 'image/png');
+        }
+      } catch (err) {
+        console.error('Failed to copy GIF to clipboard:', err);
+        showToast('复制失败', 'error');
+      }
+      return;
+    }
+    
     const composedCanvas = await composeImageWithBackground();
     if (!composedCanvas) return;
     
@@ -1272,15 +1846,28 @@ function App() {
               <span className="btn-icon">📁</span>
               <span className="btn-text">选择</span>
             </button>
-            <button
-              className="btn btn-success"
-              onClick={handleProcess}
-              disabled={!originalImage || isProcessing}
-              title={!originalImage ? "请先选择图片" : isProcessing ? "正在处理中..." : "使用AI模型去除背景"}
-            >
-              <span className="btn-icon">{isProcessing ? '⏳' : '✨'}</span>
-              <span className="btn-text">{isProcessing ? '处理中' : '抠图'}</span>
-            </button>
+            {isGifProcessing ? (
+              <button
+                className="btn btn-error"
+                onClick={cancelGifProcessing}
+                title="取消 GIF 处理"
+              >
+                <span className="btn-icon">✕</span>
+                <span className="btn-text">
+                  GIF 抠图中 {Math.round((gifProgress.current / gifProgress.total) * 100)}%
+                </span>
+              </button>
+            ) : (
+              <button
+                className="btn btn-success"
+                onClick={handleProcess}
+                disabled={!originalImage || isProcessing}
+                title={!originalImage ? "请先选择图片" : isProcessing ? "正在处理中..." : "使用AI模型去除背景"}
+              >
+                <span className="btn-icon">{isProcessing ? '⏳' : '✨'}</span>
+                <span className="btn-text">{isProcessing ? '处理中' : '抠图'}</span>
+              </button>
+            )}
             <button
               className="btn btn-secondary"
               onClick={processedImage ? handleSaveWithMask : handleSave}
@@ -1452,7 +2039,7 @@ function App() {
           </div>
 
           {/* 编辑工具组 */}
-          {processedImage && (
+          {processedImage && !isOriginalGif && (
             <div className="toolbar-group">
               <div className="toolbar-tools">
                 <button
@@ -1616,14 +2203,14 @@ function App() {
                     拖拽图片到这里，或点击选择
                   </div>
                   <div className="drop-zone-hint">
-                    支持 PNG、JPG、JPEG、WEBP
+                    支持 PNG、JPG、JPEG、WEBP、GIF
                   </div>
                 </div>
               )}
               <input
                 ref={fileInputRef}
                 type="file"
-                accept="image/png,image/jpeg,image/jpg,image/webp"
+                accept="image/png,image/jpeg,image/jpg,image/webp,image/gif"
                 onChange={handleFileChange}
                 style={{ display: 'none' }}
               />
@@ -1637,6 +2224,9 @@ function App() {
               {processedImage && (
                 <>
                   <span className="preview-badge">已处理</span>
+                  {isOriginalGif && (
+                    <span className="preview-badge" style={{ background: '#dbeafe', color: '#1e40af' }}>GIF</span>
+                  )}
                   {editMode !== 'none' && (
                     <span className="edit-badge">{editMode === 'erase' ? '擦除模式' : '修补模式'}</span>
                   )}
@@ -1646,9 +2236,9 @@ function App() {
             <div
               ref={resultPanelRef}
               className={`panel-content result-panel ${isDragging ? 'dragging' : ''} ${editMode !== 'none' ? 'edit-mode' : ''}`}
-              style={{ cursor: editMode !== 'none' ? 'default' : 'grab' }}
-              onMouseDown={editMode === 'none' ? handleMouseDown : handleDrawStart}
-              onMouseMove={editMode === 'none' ? handleMouseMove : (e) => {
+              style={{ cursor: isOriginalGif || editMode === 'none' ? 'grab' : 'default' }}
+              onMouseDown={isOriginalGif ? handleMouseDown : (editMode === 'none' ? handleMouseDown : handleDrawStart)}
+              onMouseMove={isOriginalGif ? handleMouseMove : (editMode === 'none' ? handleMouseMove : (e) => {
                 handleDrawMove(e);
                 // Update both cursors simultaneously
                 const resultCursor = resultCursorRef.current;
@@ -1668,11 +2258,11 @@ function App() {
                     originalCursor.style.top = `${relativeY * originalRect.height}px`;
                   }
                 }
-              }}
-              onMouseUp={editMode === 'none' ? handleMouseUp : handleDrawEnd}
+              })}
+              onMouseUp={isOriginalGif ? handleMouseUp : (editMode === 'none' ? handleMouseUp : handleDrawEnd)}
               onMouseEnter={() => setIsMouseInResultPanel(true)}
               onMouseLeave={() => {
-                if (editMode === 'none') {
+                if (editMode === 'none' || isOriginalGif) {
                   handleMouseUp();
                 } else {
                   handleDrawEnd();
@@ -1691,7 +2281,15 @@ function App() {
                   backgroundPosition: bgImage ? 'center' : '0 0, 0 10px, 10px -10px, -10px 0px'
                 }}
               >
-                {processedImage && (
+                {processedImage && isOriginalGif && (
+                  <img
+                    src={processedImage}
+                    alt="Processed GIF"
+                    className="preview-image"
+                    style={{ maxWidth: '100%', maxHeight: '100%' }}
+                  />
+                )}
+                {processedImage && !isOriginalGif && (
                   <>
                     <canvas
                       ref={outputCanvasRef}
