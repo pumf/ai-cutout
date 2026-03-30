@@ -1010,12 +1010,32 @@ function App() {
     
     // Draw background
     if (bgImage) {
-      // Draw background image
+      // Draw background image with CSS cover mode
       const bgImg = new Image();
       bgImg.crossOrigin = 'anonymous';
       await new Promise<void>((resolve) => {
         bgImg.onload = () => {
-          ctx.drawImage(bgImg, 0, 0, width, height);
+          // Calculate cover mode dimensions (same as CSS background-size: cover)
+          const imgRatio = bgImg.width / bgImg.height;
+          const canvasRatio = width / height;
+          
+          let drawWidth, drawHeight, offsetX, offsetY;
+          
+          if (imgRatio > canvasRatio) {
+            // Image is wider than canvas (relative to height)
+            drawHeight = height;
+            drawWidth = height * imgRatio;
+            offsetX = (width - drawWidth) / 2;
+            offsetY = 0;
+          } else {
+            // Image is taller than canvas (relative to width)
+            drawWidth = width;
+            drawHeight = width / imgRatio;
+            offsetX = 0;
+            offsetY = (height - drawHeight) / 2;
+          }
+          
+          ctx.drawImage(bgImg, offsetX, offsetY, drawWidth, drawHeight);
           resolve();
         };
         bgImg.onerror = () => resolve();
