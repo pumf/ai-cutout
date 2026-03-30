@@ -32,6 +32,9 @@ function App() {
   const [isMouseInOriginalPanel, setIsMouseInOriginalPanel] = useState(false);
   const [isMouseInResultPanel, setIsMouseInResultPanel] = useState(false);
   
+  // Original panel collapse state
+  const [isOriginalPanelCollapsed, setIsOriginalPanelCollapsed] = useState(false);
+  
   // Background settings
   const [bgColor, setBgColor] = useState<string>('transparent');
   const [bgImage, setBgImage] = useState<string | null>(null);
@@ -1518,11 +1521,21 @@ function App() {
           )}
         </div>
 
-        <div className="workspace">
-          <div className="panel">
+        <div className={`workspace ${isOriginalPanelCollapsed ? 'original-collapsed' : ''}`}>
+          <div className={`panel ${isOriginalPanelCollapsed ? 'collapsed' : ''}`}>
             <div className="panel-header">
               <span>原图</span>
+              <button
+                className="panel-toggle-btn"
+                onClick={() => setIsOriginalPanelCollapsed(!isOriginalPanelCollapsed)}
+                title={isOriginalPanelCollapsed ? "展开原图" : "收起原图"}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points={isOriginalPanelCollapsed ? "9 18 15 12 9 6" : "15 18 9 12 15 6"}></polyline>
+                </svg>
+              </button>
             </div>
+            {!isOriginalPanelCollapsed && (
             <div
               ref={originalPanelRef}
               className={`panel-content ${dragActive ? 'drag-active' : ''} ${isDragging || isOriginalDragging ? 'dragging' : ''} ${editMode !== 'none' ? 'edit-mode' : ''}`}
@@ -1615,6 +1628,7 @@ function App() {
                 style={{ display: 'none' }}
               />
             </div>
+            )}
           </div>
 
           <div className="panel">

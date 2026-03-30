@@ -470,6 +470,47 @@ body {
   grid-template-columns: 1fr 1fr;
   gap: 20px;
   min-height: 0;
+  transition: grid-template-columns 0.3s ease;
+}
+
+.workspace.original-collapsed {
+  grid-template-columns: auto 1fr;
+}
+
+/* Panel toggle button */
+.panel-toggle-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.panel-toggle-btn:hover {
+  background: var(--bg-color);
+  color: var(--text-primary);
+}
+
+/* Collapsed panel */
+.panel.collapsed {
+  width: 60px;
+  min-width: 60px;
+}
+
+.panel.collapsed .panel-header {
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 8px;
+}
+
+.panel.collapsed .panel-header span {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
 }
 
 .panel {
@@ -727,10 +768,12 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   gap: 12px;
   padding: 40px;
   border-radius: var(--radius-lg);
   transition: all 0.2s;
+  height: 100%;
 }
 
 .drop-zone-icon {
@@ -762,8 +805,10 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   gap: 12px;
   opacity: 0.6;
+  height: 100%;
 }
 
 .empty-icon {
