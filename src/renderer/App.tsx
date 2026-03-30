@@ -44,6 +44,18 @@ function App() {
   const bgPickerRef = useRef<HTMLDivElement>(null);
   const zoomControlRef = useRef<HTMLDivElement>(null);
 
+  // Toast state
+  const [toast, setToast] = useState<{message: string; type: 'success' | 'info' | 'error'; visible: boolean}>({message: '', type: 'info', visible: false});
+  const toastTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Keyboard shortcuts help
+  const [showShortcuts, setShowShortcuts] = useState(false);
+
+  // Paste image confirmation
+  const [showPasteConfirm, setShowPasteConfirm] = useState(false);
+  const [pendingImageUrl, setPendingImageUrl] = useState<string | null>(null);
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+
   // Use refs for virtual cursor elements to avoid React re-render
   const originalCursorRef = useRef<HTMLDivElement>(null);
   const resultCursorRef = useRef<HTMLDivElement>(null);
@@ -199,12 +211,13 @@ function App() {
         setShowModelSelector(false);
         // Refresh model list
         loadAvailableModels();
+        showToast(`模型 ${data.model.display_name || data.model.name} 加载成功`, 'success');
       } else {
-        alert('加载模型失败: ' + (data.detail || '未知错误'));
+        showToast('加载模型失败: ' + (data.detail || '未知错误'), 'error');
       }
     } catch (e) {
       console.error('Failed to load model:', e);
-      alert('加载模型失败');
+      showToast('加载模型失败', 'error');
     } finally {
       setIsLoadingModel(false);
     }
@@ -264,45 +277,40 @@ function App() {
   }, []);
 
   const handleSelectImage = () => {
+    // Check if there's already an image
+    if (originalImage || processedImage) {
+      // Clear the file input to allow re-selecting the same file
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
     fileInputRef.current?.click();
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const imageUrl = event.target?.result as string;
-        setOriginalImage(imageUrl);
-        setProcessedImage(null);
-        
-        // Reset edit mode when selecting new image
-        setEditMode('none');
-        
-        // Auto-fit image to panel - use cover mode to fill the panel
-        const img = new Image();
-        img.onload = () => {
-          const panel = originalPanelRef.current;
-          if (panel) {
-            const panelW = panel.clientWidth;
-            const panelH = panel.clientHeight;
-            const imgW = img.naturalWidth;
-            const imgH = img.naturalHeight;
-            
-            // Calculate scale to cover the entire panel
-            const scaleW = panelW / imgW;
-            const scaleH = panelH / imgH;
-            const coverScale = Math.max(scaleW, scaleH);
-            
-            setScale(coverScale);
-            setTranslateX(0);
-            setTranslateY(0);
-          }
-        };
-        img.src = imageUrl;
-      };
-      reader.readAsDataURL(file);
+      if (originalImage || processedImage) {
+        // Show confirmation if there's already an image
+        setPendingFile(file);
+        setShowPasteConfirm(true);
+        // Clear the input
+        e.target.value = '';
+      } else {
+        // Load directly if no image exists
+        loadFileImage(file);
+      }
     }
+  };
+
+  // Load file as image
+  const loadFileImage = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const imageUrl = event.target?.result as string;
+      loadImageWithFit(imageUrl);
+    };
+    reader.readAsDataURL(file);
   };
 
   const handleProcess = async () => {
@@ -310,7 +318,7 @@ function App() {
     
     if (modelStatus !== 'ready') {
       setShowModelSelector(true);
-      alert('请先选择一个AI模型');
+      showToast('请先选择一个AI模型', 'error');
       return;
     }
     
@@ -329,9 +337,10 @@ function App() {
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       setProcessedImage(url);
+      showToast('AI 抠图完成！', 'success');
     } catch (e) {
       console.error('Processing failed:', e);
-      alert('处理失败，请重试');
+      showToast('处理失败，请重试', 'error');
     } finally {
       setIsProcessing(false);
     }
@@ -526,6 +535,159 @@ function App() {
       };
     }
   }, [showZoomDropdown]);
+
+  // Toast helper function
+  const showToast = (message: string, type: 'success' | 'info' | 'error' = 'info') => {
+    if (toastTimeoutRef.current) {
+      clearTimeout(toastTimeoutRef.current);
+    }
+    setToast({ message, type, visible: true });
+    toastTimeoutRef.current = setTimeout(() => {
+      setToast(prev => ({ ...prev, visible: false }));
+    }, 3000);
+  };
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ctrl/Cmd + O: Open image
+      if ((e.ctrlKey || e.metaKey) && e.key === 'o') {
+        e.preventDefault();
+        handleSelectImage();
+      }
+      // Ctrl/Cmd + S: Save/Export
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+        e.preventDefault();
+        if (processedImage) {
+          handleSaveWithMask();
+        }
+      }
+      // Ctrl/Cmd + C: Copy to clipboard
+      if ((e.ctrlKey || e.metaKey) && e.key === 'c' && !e.shiftKey) {
+        e.preventDefault();
+        if (processedImage) {
+          handleCopyToClipboard();
+        }
+      }
+      // Ctrl/Cmd + P: Process image
+      if ((e.ctrlKey || e.metaKey) && e.key === 'p') {
+        e.preventDefault();
+        if (originalImage && !isProcessing) {
+          handleProcess();
+        }
+      }
+      // Ctrl/Cmd + Z: Undo
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+        e.preventDefault();
+        if (historyIndex > 0) {
+          handleUndo();
+        }
+      }
+      // Ctrl/Cmd + B: Toggle background picker
+      if ((e.ctrlKey || e.metaKey) && e.key === 'b') {
+        e.preventDefault();
+        if (processedImage) {
+          setShowBgPicker(!showBgPicker);
+        }
+      }
+      // ?: Show shortcuts
+      if (e.key === '?' && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        setShowShortcuts(true);
+      }
+      // Escape: Close modals
+      if (e.key === 'Escape') {
+        setShowModelSelector(false);
+        setShowHelp(false);
+        setShowBgPicker(false);
+        setShowShortcuts(false);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [originalImage, processedImage, isProcessing, historyIndex, showBgPicker]);
+
+  // Handle paste image
+  useEffect(() => {
+    const handlePaste = (e: ClipboardEvent) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].type.indexOf('image') !== -1) {
+          const blob = items[i].getAsFile();
+          if (blob) {
+            const reader = new FileReader();
+            reader.onload = (event) => {
+              const imageUrl = event.target?.result as string;
+              if (originalImage || processedImage) {
+                // Show confirmation if there's already an image
+                setPendingImageUrl(imageUrl);
+                setShowPasteConfirm(true);
+              } else {
+                // Load directly if no image exists
+                loadImageWithFit(imageUrl);
+              }
+            };
+            reader.readAsDataURL(blob);
+          }
+          break;
+        }
+      }
+    };
+
+    window.addEventListener('paste', handlePaste);
+    return () => window.removeEventListener('paste', handlePaste);
+  }, [originalImage, processedImage]);
+
+  // Helper function to load image with auto-fit
+  const loadImageWithFit = (imageUrl: string) => {
+    setOriginalImage(imageUrl);
+    setProcessedImage(null);
+    
+    // Auto-fit image to panel
+    const img = new Image();
+    img.onload = () => {
+      const panel = originalPanelRef.current;
+      if (panel) {
+        const panelW = panel.clientWidth;
+        const panelH = panel.clientHeight;
+        const imgW = img.naturalWidth;
+        const imgH = img.naturalHeight;
+        
+        // Calculate scale to fit image to panel (cover mode)
+        const scaleX = (panelW - 40) / imgW;
+        const scaleY = (panelH - 40) / imgH;
+        const newScale = Math.max(scaleX, scaleY);
+        
+        setScale(Math.min(newScale, 1));
+        setTranslateX(0);
+        setTranslateY(0);
+      }
+      showToast('图片已粘贴', 'success');
+    };
+    img.src = imageUrl;
+  };
+
+  // Confirm paste and replace
+  const confirmPaste = () => {
+    if (pendingImageUrl) {
+      loadImageWithFit(pendingImageUrl);
+      setPendingImageUrl(null);
+    } else if (pendingFile) {
+      loadFileImage(pendingFile);
+      setPendingFile(null);
+    }
+    setShowPasteConfirm(false);
+  };
+
+  // Cancel paste
+  const cancelPaste = () => {
+    setPendingImageUrl(null);
+    setPendingFile(null);
+    setShowPasteConfirm(false);
+  };
 
   // Save mask state
   const saveMaskState = () => {
@@ -831,12 +993,74 @@ function App() {
     }
   };
 
-  const handleSaveWithMask = () => {
-    if (!outputCanvasRef.current) return;
+  // Compose image with background
+  const composeImageWithBackground = async (): Promise<HTMLCanvasElement | null> => {
+    if (!outputCanvasRef.current) return null;
+    
+    const outputCanvas = outputCanvasRef.current;
+    const width = outputCanvas.width;
+    const height = outputCanvas.height;
+    
+    // Create a new canvas for composition
+    const composedCanvas = document.createElement('canvas');
+    composedCanvas.width = width;
+    composedCanvas.height = height;
+    const ctx = composedCanvas.getContext('2d');
+    if (!ctx) return null;
+    
+    // Draw background
+    if (bgImage) {
+      // Draw background image
+      const bgImg = new Image();
+      bgImg.crossOrigin = 'anonymous';
+      await new Promise<void>((resolve) => {
+        bgImg.onload = () => {
+          ctx.drawImage(bgImg, 0, 0, width, height);
+          resolve();
+        };
+        bgImg.onerror = () => resolve();
+        bgImg.src = bgImage;
+      });
+    } else if (bgColor !== 'transparent') {
+      // Draw background color
+      ctx.fillStyle = bgColor;
+      ctx.fillRect(0, 0, width, height);
+    }
+    
+    // Draw foreground (output canvas with transparent background)
+    ctx.drawImage(outputCanvas, 0, 0);
+    
+    return composedCanvas;
+  };
+
+  const handleSaveWithMask = async () => {
+    const composedCanvas = await composeImageWithBackground();
+    if (!composedCanvas) return;
+    
     const link = document.createElement('a');
-    link.href = outputCanvasRef.current.toDataURL('image/png');
+    link.href = composedCanvas.toDataURL('image/png');
     link.download = 'removed_bg_edited.png';
     link.click();
+    showToast('图片已导出', 'success');
+  };
+
+  const handleCopyToClipboard = async () => {
+    const composedCanvas = await composeImageWithBackground();
+    if (!composedCanvas) return;
+    
+    try {
+      composedCanvas.toBlob(async (blob) => {
+        if (blob) {
+          await navigator.clipboard.write([
+            new ClipboardItem({ 'image/png': blob })
+          ]);
+          showToast('已复制到剪贴板', 'success');
+        }
+      }, 'image/png');
+    } catch (err) {
+      console.error('Failed to copy to clipboard:', err);
+      showToast('复制失败', 'error');
+    }
   };
 
   return (
@@ -1043,6 +1267,15 @@ function App() {
               <span className="btn-icon">💾</span>
               <span className="btn-text">导出</span>
             </button>
+            <button
+              className="btn btn-secondary"
+              onClick={handleCopyToClipboard}
+              disabled={!processedImage}
+              title={!processedImage ? "请先处理图片" : "复制到剪贴板"}
+            >
+              <span className="btn-icon">📋</span>
+              <span className="btn-text">复制</span>
+            </button>
           </div>
 
           {/* 视图控制组 */}
@@ -1087,56 +1320,56 @@ function App() {
                       <div className="bg-picker-colors">
                         <div
                           className={`bg-picker-color ${bgColor === 'transparent' && !bgImage ? 'active' : ''}`}
-                          onClick={() => { setBgColor('transparent'); setBgImage(null); }}
+                          onClick={() => { setBgColor('transparent'); setBgImage(null); showToast('背景已设为透明', 'success'); }}
                           title="透明"
                         >
                           <div className="bg-color-transparent" />
                         </div>
                         <div
                           className={`bg-picker-color ${bgColor === '#ffffff' && !bgImage ? 'active' : ''}`}
-                          onClick={() => { setBgColor('#ffffff'); setBgImage(null); }}
+                          onClick={() => { setBgColor('#ffffff'); setBgImage(null); showToast('背景已设为白色', 'success'); }}
                           style={{ backgroundColor: '#ffffff' }}
                           title="白色"
                         />
                         <div
                           className={`bg-picker-color ${bgColor === '#000000' && !bgImage ? 'active' : ''}`}
-                          onClick={() => { setBgColor('#000000'); setBgImage(null); }}
+                          onClick={() => { setBgColor('#000000'); setBgImage(null); showToast('背景已设为黑色', 'success'); }}
                           style={{ backgroundColor: '#000000' }}
                           title="黑色"
                         />
                         <div
                           className={`bg-picker-color ${bgColor === '#ef4444' && !bgImage ? 'active' : ''}`}
-                          onClick={() => { setBgColor('#ef4444'); setBgImage(null); }}
+                          onClick={() => { setBgColor('#ef4444'); setBgImage(null); showToast('背景已设为红色', 'success'); }}
                           style={{ backgroundColor: '#ef4444' }}
                           title="红色"
                         />
                         <div
                           className={`bg-picker-color ${bgColor === '#3b82f6' && !bgImage ? 'active' : ''}`}
-                          onClick={() => { setBgColor('#3b82f6'); setBgImage(null); }}
+                          onClick={() => { setBgColor('#3b82f6'); setBgImage(null); showToast('背景已设为蓝色', 'success'); }}
                           style={{ backgroundColor: '#3b82f6' }}
                           title="蓝色"
                         />
                         <div
                           className={`bg-picker-color ${bgColor === '#10b981' && !bgImage ? 'active' : ''}`}
-                          onClick={() => { setBgColor('#10b981'); setBgImage(null); }}
+                          onClick={() => { setBgColor('#10b981'); setBgImage(null); showToast('背景已设为绿色', 'success'); }}
                           style={{ backgroundColor: '#10b981' }}
                           title="绿色"
                         />
                         <div
                           className={`bg-picker-color ${bgColor === '#f59e0b' && !bgImage ? 'active' : ''}`}
-                          onClick={() => { setBgColor('#f59e0b'); setBgImage(null); }}
+                          onClick={() => { setBgColor('#f59e0b'); setBgImage(null); showToast('背景已设为黄色', 'success'); }}
                           style={{ backgroundColor: '#f59e0b' }}
                           title="黄色"
                         />
                         <div
                           className={`bg-picker-color ${bgColor === '#8b5cf6' && !bgImage ? 'active' : ''}`}
-                          onClick={() => { setBgColor('#8b5cf6'); setBgImage(null); }}
+                          onClick={() => { setBgColor('#8b5cf6'); setBgImage(null); showToast('背景已设为紫色', 'success'); }}
                           style={{ backgroundColor: '#8b5cf6' }}
                           title="紫色"
                         />
                         <div
                           className={`bg-picker-color ${bgColor === '#ec4899' && !bgImage ? 'active' : ''}`}
-                          onClick={() => { setBgColor('#ec4899'); setBgImage(null); }}
+                          onClick={() => { setBgColor('#ec4899'); setBgImage(null); showToast('背景已设为粉色', 'success'); }}
                           style={{ backgroundColor: '#ec4899' }}
                           title="粉色"
                         />
@@ -1147,7 +1380,7 @@ function App() {
                       <input
                         type="color"
                         value={bgColor === 'transparent' ? '#ffffff' : bgColor}
-                        onChange={(e) => { setBgColor(e.target.value); setBgImage(null); }}
+                        onChange={(e) => { setBgColor(e.target.value); setBgImage(null); showToast('背景颜色已更新', 'success'); }}
                         className="bg-picker-color-input"
                         title="选择自定义颜色"
                       />
@@ -1166,6 +1399,7 @@ function App() {
                               const reader = new FileReader();
                               reader.onload = (e) => {
                                 setBgImage(e.target?.result as string);
+                                showToast('背景图片已设置', 'success');
                               };
                               reader.readAsDataURL(file);
                             }
@@ -1176,9 +1410,9 @@ function App() {
                         📁 选择图片
                       </button>
                       {bgImage && (
-                        <button
+                          <button
                           className="btn btn-outline btn-sm"
-                          onClick={() => setBgImage(null)}
+                          onClick={() => { setBgImage(null); showToast('背景图片已清除', 'info'); }}
                           style={{ marginLeft: '8px' }}
                         >
                           ❌ 清除
@@ -1475,6 +1709,96 @@ function App() {
       <footer className="footer">
         <span>使用 RMBG 本地AI模型 | 保护隐私 · 离线可用</span>
       </footer>
+
+      {/* Toast Notification */}
+      {toast.visible && (
+        <div className={`toast toast-${toast.type}`}>
+          {toast.message}
+        </div>
+      )}
+
+      {/* Keyboard Shortcuts Help Button */}
+      <button
+        className="shortcuts-help-btn"
+        onClick={() => setShowShortcuts(true)}
+        title="查看快捷键"
+      >
+        ⌨️
+      </button>
+
+      {/* Keyboard Shortcuts Modal */}
+      {showShortcuts && (
+        <div className="modal-overlay" onClick={() => setShowShortcuts(false)}>
+          <div className="modal shortcuts-modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>键盘快捷键</h3>
+              <button className="modal-close" onClick={() => setShowShortcuts(false)}>×</button>
+            </div>
+            <div className="modal-content">
+              <div className="shortcuts-list">
+                <div className="shortcut-item">
+                  <kbd>Ctrl</kbd> + <kbd>O</kbd>
+                  <span>打开图片</span>
+                </div>
+                <div className="shortcut-item">
+                  <kbd>Ctrl</kbd> + <kbd>P</kbd>
+                  <span>AI 抠图</span>
+                </div>
+                <div className="shortcut-item">
+                  <kbd>Ctrl</kbd> + <kbd>S</kbd>
+                  <span>导出图片</span>
+                </div>
+                <div className="shortcut-item">
+                  <kbd>Ctrl</kbd> + <kbd>C</kbd>
+                  <span>复制到剪贴板</span>
+                </div>
+                <div className="shortcut-item">
+                  <kbd>Ctrl</kbd> + <kbd>Z</kbd>
+                  <span>撤销</span>
+                </div>
+                <div className="shortcut-item">
+                  <kbd>Ctrl</kbd> + <kbd>B</kbd>
+                  <span>切换背景选择</span>
+                </div>
+                <div className="shortcut-item">
+                  <kbd>?</kbd>
+                  <span>显示快捷键</span>
+                </div>
+                <div className="shortcut-item">
+                  <kbd>Esc</kbd>
+                  <span>关闭弹窗</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Paste Confirmation Modal */}
+      {showPasteConfirm && (
+        <div className="modal-overlay" onClick={cancelPaste}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>替换图片</h3>
+              <button className="modal-close" onClick={cancelPaste}>×</button>
+            </div>
+            <div className="modal-content">
+              <p>当前已有图片，是否替换为新图片？</p>
+              <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '8px' }}>
+                当前操作将丢失未保存的编辑内容
+              </p>
+              <div style={{ display: 'flex', gap: '12px', marginTop: '24px', justifyContent: 'flex-end' }}>
+                <button className="btn btn-secondary" onClick={cancelPaste}>
+                  取消
+                </button>
+                <button className="btn btn-primary" onClick={confirmPaste}>
+                  确认替换
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
