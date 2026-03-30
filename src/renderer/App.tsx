@@ -62,7 +62,7 @@ function App() {
 
   // GIF processing state
   const [isGifProcessing, setIsGifProcessing] = useState(false);
-  const [gifProgress, setGifProgress] = useState({ current: 0, total: 0 });
+  const [gifProgress, setGifProgress] = useState({ current: 0, total: 0, message: '' });
   const [isOriginalGif, setIsOriginalGif] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -342,7 +342,7 @@ function App() {
       abortControllerRef.current = null;
     }
     setIsGifProcessing(false);
-    setGifProgress({ current: 0, total: 0 });
+    setGifProgress({ current: 0, total: 0, message: "" });
     showToast('已取消 GIF 处理', 'info');
   };
 
@@ -494,54 +494,58 @@ function App() {
         throw new Error('GIF 文件不包含任何帧');
       }
       
-      setGifProgress({ current: 0, total: numFrames });
+      // Calculate concurrency based on CPU cores
+      const cpuCores = navigator.hardwareConcurrency || 4;
+      const concurrency = Math.min(Math.max(2, Math.floor(cpuCores)), 6);
       
-      // Create canvas for reading processed frames
-      const processedCanvas = document.createElement('canvas');
-      processedCanvas.width = width;
-      processedCanvas.height = height;
-      const processedCtx = processedCanvas.getContext('2d', { willReadFrequently: true });
-      if (!processedCtx) throw new Error('无法创建 processed canvas context');
+      showToast(`正在处理 ${numFrames} 帧 GIF...`, 'info');
       
-      // Process each frame
-      const processedFrames: { indices: Uint8Array; palette: number[]; delay: number; transparentIndex: number | null }[] = [];
+      setGifProgress({ current: 0, total: numFrames, message: '' });
+      
+      // Step 1: Extract all frames first
+      const frames: { index: number; base64: string; delay: number }[] = [];
       
       for (let i = 0; i < numFrames; i++) {
-        // Check if cancelled
-        if (signal.aborted) {
-          throw new Error('Cancelled');
-        }
-        
-        setGifProgress({ current: i + 1, total: numFrames });
-        
-        // Decode frame info
         const frameInfo = gifReader.frameInfo(i);
-        
-        // Use decodeAndBlitFrameRGBA to get the complete frame
-        // This method composites all previous frames up to this frame
         const pixels = new Uint8Array(width * height * 4);
         gifReader.decodeAndBlitFrameRGBA(i, pixels);
         
-        // Create a fresh canvas for this frame
         const frameCanvas = document.createElement('canvas');
         frameCanvas.width = width;
         frameCanvas.height = height;
         const frameCtx = frameCanvas.getContext('2d', { willReadFrequently: true });
         if (!frameCtx) throw new Error('无法创建 frame canvas context');
         
-        // Put pixels on canvas
         const imageData = frameCtx.createImageData(width, height);
         imageData.data.set(pixels);
         frameCtx.putImageData(imageData, 0, 0);
         
-        // Convert to base64
         const frameBase64 = frameCanvas.toDataURL('image/png').replace(/^data:image\/png;base64,/, '');
+        frames.push({ index: i, base64: frameBase64, delay: frameInfo.delay });
+      }
+      
+      // Step 2: Process frames concurrently - use Promise pool pattern
+      const processedFrames: { 
+        index: number;
+        indices: Uint8Array; 
+        palette: number[]; 
+        delay: number; 
+        transparentIndex: number | null;
+        error?: boolean;
+      }[] = [];
+      
+      let completedCount = 0;
+      let processingCount = 0;
+      
+      // Process a single frame
+      const processSingleFrame = async (frame: typeof frames[0]): Promise<typeof processedFrames[0]> => {
+        processingCount++;
         
-        // Process frame
         try {
-          const processedBlob = await processImageFrame(frameBase64);
+          // Try to process frame
+          let processedBlob = await processImageFrame(frame.base64);
           
-          // Read processed image back to get pixel data
+          // Read processed image
           const processedUrl = URL.createObjectURL(processedBlob);
           const img = new Image();
           await new Promise<void>((resolve, reject) => {
@@ -550,64 +554,125 @@ function App() {
             img.src = processedUrl;
           });
           
-          processedCtx.clearRect(0, 0, width, height);
-          processedCtx.drawImage(img, 0, 0);
+          // Create canvas for this frame
+          const frameCanvas = document.createElement('canvas');
+          frameCanvas.width = width;
+          frameCanvas.height = height;
+          const frameCtx = frameCanvas.getContext('2d', { willReadFrequently: true });
+          if (!frameCtx) throw new Error('无法创建 frame context');
+          
+          frameCtx.drawImage(img, 0, 0);
           URL.revokeObjectURL(processedUrl);
           
-          // Get pixel data - create a copy to ensure we have Uint8Array
-          const processedImageData = processedCtx.getImageData(0, 0, width, height);
-          
-          // Create palette and indexed data for GIF
-          const processedPixels = new Uint8Array(processedImageData.data.length);
-          processedPixels.set(processedImageData.data);
+          // Get pixel data
+          const processedImageData = frameCtx.getImageData(0, 0, width, height);
+          const processedPixels = new Uint8Array(processedImageData.data);
           const { palette, indices, transparentIndex } = createPalette(processedPixels);
           
-          processedFrames.push({
+          completedCount++;
+          processingCount--;
+          
+          setGifProgress({ 
+            current: completedCount, 
+            total: numFrames,
+            message: ''
+          });
+          
+          return {
+            index: frame.index,
             indices,
             palette,
-            delay: frameInfo.delay,
-            transparentIndex
-          });
+            delay: frame.delay,
+            transparentIndex,
+            error: false
+          };
         } catch (err) {
-          // Retry processing the frame instead of using original
-          console.error(`第 ${i + 1} 帧处理失败，正在重试...`);
+          // Retry once
           try {
-            // Retry once
-            const retryBlob = await processImageFrame(frameBase64);
+            const retryBlob = await processImageFrame(frame.base64);
             const retryUrl = URL.createObjectURL(retryBlob);
             const retryImg = new Image();
             await new Promise<void>((resolve, reject) => {
               retryImg.onload = () => resolve();
-              retryImg.onerror = () => reject(new Error('重试处理后的图片加载失败'));
+              retryImg.onerror = () => reject(new Error('重试失败'));
               retryImg.src = retryUrl;
             });
             
-            processedCtx.clearRect(0, 0, width, height);
-            processedCtx.drawImage(retryImg, 0, 0);
+            const frameCanvas = document.createElement('canvas');
+            frameCanvas.width = width;
+            frameCanvas.height = height;
+            const frameCtx = frameCanvas.getContext('2d', { willReadFrequently: true });
+            if (!frameCtx) throw new Error('无法创建 frame context');
+            
+            frameCtx.drawImage(retryImg, 0, 0);
             URL.revokeObjectURL(retryUrl);
             
-            const retryImageData = processedCtx.getImageData(0, 0, width, height);
-            const retryPixels = new Uint8Array(retryImageData.data.length);
-            retryPixels.set(retryImageData.data);
+            const retryImageData = frameCtx.getImageData(0, 0, width, height);
+            const retryPixels = new Uint8Array(retryImageData.data);
             const { palette: retryPalette, indices: retryIndices, transparentIndex: retryTransparentIndex } = createPalette(retryPixels);
             
-            processedFrames.push({
+            completedCount++;
+            processingCount--;
+            setGifProgress({ current: completedCount, total: numFrames, message: "" });
+            
+            return {
+              index: frame.index,
               indices: retryIndices,
               palette: retryPalette,
-              delay: frameInfo.delay,
-              transparentIndex: retryTransparentIndex
-            });
-            console.log(`第 ${i + 1} 帧重试成功`);
+              delay: frame.delay,
+              transparentIndex: retryTransparentIndex,
+              error: false
+            };
           } catch (retryErr) {
-            // If retry also fails, throw error to stop processing
-            throw new Error(`第 ${i + 1} 帧处理失败，已重试但仍失败`);
+            completedCount++;
+            processingCount--;
+            setGifProgress({ current: completedCount, total: numFrames, message: "" });
+            return {
+              index: frame.index,
+              indices: new Uint8Array(width * height),
+              palette: [0, 0, 0, 255, 255, 255],
+              delay: frame.delay,
+              transparentIndex: 0,
+              error: true
+            };
           }
         }
-      }
+      };
       
-      // Check if cancelled
-      if (signal.aborted) {
-        throw new Error('Cancelled');
+      // Use async pool pattern for true concurrency control
+      const processWithPool = async () => {
+        const iterator = frames[Symbol.iterator]();
+        const workers: Promise<void>[] = [];
+        
+        // Create worker functions that pull from iterator
+        const worker = async () => {
+          for (const frame of iterator) {
+            if (signal.aborted) {
+              throw new Error('Cancelled');
+            }
+            const result = await processSingleFrame(frame);
+            processedFrames.push(result);
+          }
+        };
+        
+        // Start all workers
+        for (let i = 0; i < concurrency; i++) {
+          workers.push(worker());
+        }
+        
+        // Wait for all workers to complete
+        await Promise.all(workers);
+      };
+      
+      await processWithPool();
+      
+      // Sort by index to maintain order
+      processedFrames.sort((a, b) => a.index - b.index);
+      
+      // Check for errors
+      const failedFrames = processedFrames.filter(f => f.error);
+      if (failedFrames.length > 0) {
+        console.error(`${failedFrames.length} 帧处理失败`);
       }
       
       if (processedFrames.length === 0) {
@@ -693,7 +758,7 @@ function App() {
       showToast(`GIF 处理失败: ${errorMessage}`, 'error');
     } finally {
       setIsGifProcessing(false);
-      setGifProgress({ current: 0, total: 0 });
+      setGifProgress({ current: 0, total: 0, message: "" });
       abortControllerRef.current = null;
     }
   };
