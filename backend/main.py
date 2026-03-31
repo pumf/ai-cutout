@@ -22,11 +22,21 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 import uvicorn
 
+# Setup logging to both console and file
+log_dir = Path(__file__).parent.parent / 'logs'
+log_dir.mkdir(exist_ok=True)
+log_file = log_dir / 'backend.log'
+
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(log_file, encoding='utf-8'),
+        logging.StreamHandler()
+    ]
 )
 logger = logging.getLogger(__name__)
+logger.info(f"Logging to: {log_file}")
 
 MODEL_DIR = Path(__file__).parent.parent / 'model_files'
 OUTPUT_DIR = Path(__file__).parent / 'output'
@@ -563,7 +573,11 @@ async def unload_model_endpoint():
 async def process_upload(request: Request):
     global model
     
+    logger.info(f"=== Process request started ===")
+    logger.info(f"Current model: {current_model_info}")
+    
     if model is None:
+        logger.error("No model loaded")
         raise HTTPException(status_code=400, detail="No model loaded. Please load a model first.")
     
     try:
@@ -571,18 +585,36 @@ async def process_upload(request: Request):
         image_data = body.get('image', '')
         
         if not image_data:
+            logger.error("No image data in request")
             raise HTTPException(status_code=400, detail="No image data provided")
         
-        image_bytes = base64.b64decode(image_data)
-        image = Image.open(io.BytesIO(image_bytes))
+        logger.info(f"Received image data, length: {len(image_data)} chars")
+        
+        try:
+            image_bytes = base64.b64decode(image_data)
+            logger.info(f"Decoded image bytes: {len(image_bytes)} bytes")
+        except Exception as decode_err:
+            logger.error(f"Failed to decode base64: {decode_err}")
+            raise HTTPException(status_code=400, detail=f"Invalid image data: {decode_err}")
+        
+        try:
+            image = Image.open(io.BytesIO(image_bytes))
+            logger.info(f"Opened image: size={image.size}, mode={image.mode}, format={image.format}")
+        except Exception as img_err:
+            logger.error(f"Failed to open image: {img_err}")
+            raise HTTPException(status_code=400, detail=f"Cannot open image: {img_err}")
         
         if image.mode != 'RGBA':
             image = image.convert('RGBA')
+            logger.info(f"Converted image to RGBA")
         
+        logger.info(f"Processing image with model type: {current_model_info.get('type')}")
         result = process_image(image)
+        logger.info(f"Image processed successfully, result size: {result.size}")
         
         output_path = OUTPUT_DIR / f"output_{os.urandom(8).hex()}.png"
         result.save(output_path, 'PNG')
+        logger.info(f"Saved result to: {output_path}")
         
         return FileResponse(
             output_path,
@@ -590,11 +622,14 @@ async def process_upload(request: Request):
             headers={"X-Filename": output_path.name}
         )
         
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error processing image: {e}")
         import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+        error_trace = traceback.format_exc()
+        logger.error(f"Traceback: {error_trace}")
+        raise HTTPException(status_code=500, detail=f"{str(e)}\n{error_trace}")
 
 
 if __name__ == "__main__":

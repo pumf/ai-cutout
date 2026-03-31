@@ -1075,6 +1075,11 @@ function App() {
 
   // Helper function to load image with auto-fit
   const loadImageWithFit = (imageUrl: string) => {
+    // Exit edit mode if currently in erase or restore mode
+    if (editMode !== 'none') {
+      setEditMode('none');
+    }
+    
     setOriginalImage(imageUrl);
     setProcessedImage(null);
     
