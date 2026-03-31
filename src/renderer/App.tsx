@@ -1919,7 +1919,7 @@ function App() {
               >
                 <span className="btn-icon">✕</span>
                 <span className="btn-text">
-                  GIF 抠图中 {Math.round((gifProgress.current / gifProgress.total) * 100)}%
+                  GIF 抠图 {gifProgress.current}/{gifProgress.total}
                 </span>
               </button>
             ) : (
