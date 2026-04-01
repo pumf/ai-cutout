@@ -18,6 +18,12 @@
     "start": "electron ."
   },
   "dependencies": {
+    "@tauri-apps/api": "^2",
+    "@tauri-apps/plugin-clipboard-manager": "^2.3.2",
+    "@tauri-apps/plugin-dialog": "^2",
+    "@tauri-apps/plugin-fs": "^2",
+    "@tauri-apps/plugin-http": "^2",
+    "@tauri-apps/plugin-shell": "^2",
     "cors": "^2.8.6",
     "express": "^5.2.1",
     "omggif": "^1.0.10",
@@ -54,11 +60,7 @@
         "to": "backend"
       },
       {
-        "from": "model_files",
-        "to": "model_files"
-      },
-      {
-        "from": "venv",
+        "from": "venv-minimal",
         "to": "venv"
       },
       {

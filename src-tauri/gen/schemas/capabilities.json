@@ -1,0 +1,1 @@
+{"default":{"identifier":"default","description":"Default permissions for the app","local":true,"windows":["main"],"permissions":["core:default","shell:allow-open","dialog:allow-open","dialog:allow-save","fs:allow-read","fs:allow-write","fs:allow-resource-read","fs:allow-download-write","http:default","clipboard-manager:allow-write-image","clipboard-manager:allow-read-image"]}}

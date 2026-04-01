@@ -2,6 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { writeFile, readFile } from '@tauri-apps/plugin-fs';
+import { open as openShell } from '@tauri-apps/plugin-shell';
 
 export async function selectImage(): Promise<{path: string; data: string; name: string} | null> {
   const selected = await open({
@@ -24,8 +25,9 @@ export async function selectImage(): Promise<{path: string; data: string; name: 
   return { path, data: `data:${mimeType};base64,${base64}`, name };
 }
 
-export async function saveImage(imageData: string): Promise<string | null> {
+export async function saveImage(imageData: string, defaultName?: string): Promise<string | null> {
   const filePath = await save({
+    defaultPath: defaultName || 'removed_bg.png',
     filters: [{
       name: 'Images',
       extensions: ['png']
@@ -46,7 +48,7 @@ export async function saveImage(imageData: string): Promise<string | null> {
   return filePath;
 }
 
-export async function selectModel(): Promise<{path: string; name: string} | null> {
+export async function selectModel(): Promise<{path: string; name: string; size: number} | null> {
   const selected = await open({
     multiple: false,
     filters: [{
@@ -60,42 +62,50 @@ export async function selectModel(): Promise<{path: string; name: string} | null
   const path = selected as string;
   const name = path.split('/').pop() || 'model';
   
-  return { path, name };
-}
-
-export async function checkModelStatus(): Promise<{loaded: boolean; error?: string}> {
+  // Get file size
   try {
-    const response = await fetch('http://127.0.0.1:8765/model/status');
-    return await response.json();
-  } catch (error) {
-    return { loaded: false, error: 'Backend not running' };
+    const fileData = await readFile(path);
+    return { path, name, size: fileData.length };
+  } catch (e) {
+    // If can't read file size, return 0
+    return { path, name, size: 0 };
   }
 }
 
-export async function loadCustomModel(modelPath: string, modelId?: string) {
-  try {
-    const response = await fetch('http://127.0.0.1:8765/models/load-custom', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ path: modelPath, model_id: modelId })
-    });
-    return await response.json();
-  } catch (error) {
-    console.error('Failed to load custom model:', error);
-    throw error;
-  }
+export async function listFixedModels(): Promise<any> {
+  return await invoke('list_fixed_models');
+}
+
+export async function loadFixedModel(modelId: string): Promise<any> {
+  return await invoke('load_fixed_model', { modelId });
+}
+
+export async function loadCustomModel(modelPath: string, modelId: string): Promise<any> {
+  return await invoke('load_custom_model', { modelPath, modelId });
+}
+
+export async function processImageWithModel(imageBase64: string): Promise<any> {
+  return await invoke('process_image', { request: { image: imageBase64 } });
+}
+
+export async function openExternal(url: string): Promise<void> {
+  await openShell(url);
+}
+
+export async function healthCheck(): Promise<any> {
+  return await invoke('health_check');
 }
 
 export function windowMinimize() {
   getCurrentWindow().minimize();
 }
 
-export function windowMaximize() {
+export async function windowMaximize() {
   const win = getCurrentWindow();
-  if (win.isMaximized()) {
-    win.unmaximize();
+  if (await win.isMaximized()) {
+    await win.unmaximize();
   } else {
-    win.maximize();
+    await win.maximize();
   }
 }
 

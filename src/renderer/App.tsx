@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import './App.css';
 import { GifReader, GifWriter } from 'omggif';
+import { listFixedModels, loadFixedModel, loadCustomModel, processImageWithModel, selectModel, openExternal, saveImage } from '../tauri';
+import { invoke } from '@tauri-apps/api/core';
 
 function App() {
   const [originalImage, setOriginalImage] = useState<string | null>(null);
@@ -71,7 +73,6 @@ function App() {
   const resultCursorRef = useRef<HTMLDivElement>(null);
 
   // Refs for smooth drawing
-  const tempCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const [originalStartPos, setOriginalStartPos] = useState({ x: 0, y: 0 });
   const [originalStartTranslate, setOriginalStartTranslate] = useState({ x: 0, y: 0 });
 
@@ -166,55 +167,47 @@ function App() {
 
   const loadAvailableModels = async () => {
     try {
-      const res = await fetch('http://127.0.0.1:8765/models/fixed');
-      const data = await res.json();
-      setAvailableModels(data.models || []);
+      const data = await listFixedModels();
       
-      if (data.current_model?.loaded) {
-        setCurrentModel(data.current_model);
-        setModelStatus('ready');
+      if (data && data.models && data.models.length > 0) {
+        setAvailableModels(data.models);
+        
+        if (data.current_model?.loaded) {
+          setCurrentModel(data.current_model);
+          setModelStatus('ready');
+        } else {
+          setModelStatus('error');
+        }
       } else {
+        setAvailableModels([]);
         setModelStatus('error');
+        showToast('模型列表为空，请重试', 'error');
       }
     } catch (e) {
       console.error('Failed to load models:', e);
       setModelStatus('error');
-    }
-  };
-
-  const loadModel = async (path: string) => {
-    setIsLoadingModel(true);
-    try {
-      const res = await fetch('http://127.0.0.1:8765/models/load', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path })
-      });
-      const data = await res.json();
-      if (data.success) {
-        setCurrentModel(data.model);
-        setModelStatus('ready');
-        setShowModelSelector(false);
-        // Refresh model list
-        loadAvailableModels();
-      } else {
-        alert('加载模型失败: ' + (data.detail || '未知错误'));
+      
+      let errorMsg = '未知错误';
+      if (e instanceof Error) {
+        errorMsg = e.message;
+      } else if (typeof e === 'string') {
+        errorMsg = e;
+      } else if (e && typeof e === 'object') {
+        try {
+          errorMsg = JSON.stringify(e);
+        } catch {
+          errorMsg = '无法序列化的错误对象';
+        }
       }
-    } catch (e) {
-      console.error('Failed to load model:', e);
-      alert('加载模型失败');
-    } finally {
-      setIsLoadingModel(false);
+      
+      showToast(`加载模型失败: ${errorMsg}`, 'error');
     }
   };
 
-  const loadFixedModel = async (modelId: string) => {
+  const handleLoadFixedModel = async (modelId: string) => {
     setIsLoadingModel(true);
     try {
-      const res = await fetch(`http://127.0.0.1:8765/models/load/${modelId}`, {
-        method: 'POST'
-      });
-      const data = await res.json();
+      const data = await loadFixedModel(modelId);
       if (data.success) {
         setCurrentModel(data.model);
         setModelStatus('ready');
@@ -223,7 +216,7 @@ function App() {
         loadAvailableModels();
         showToast(`模型 ${data.model.display_name || data.model.name} 加载成功`, 'success');
       } else {
-        showToast('加载模型失败: ' + (data.detail || '未知错误'), 'error');
+        showToast('加载模型失败: ' + (data.error || '未知错误'), 'error');
       }
     } catch (e) {
       console.error('Failed to load model:', e);
@@ -234,56 +227,102 @@ function App() {
   };
 
   const selectCustomModel = async (modelId: string) => {
-    if (window.electronAPI) {
-      setIsLoadingModel(true);
-      try {
-        const result = await window.electronAPI.selectModel();
-        if (result) {
-          const loadResult = await window.electronAPI.loadCustomModel(result.path, modelId);
-          if (loadResult.success) {
-            setCurrentModel(loadResult.model);
-            setModelStatus('ready');
-            loadAvailableModels();
-          } else {
-            alert('加载模型失败: ' + (loadResult.detail || '未知错误'));
-          }
-        }
-      } catch (e) {
-        console.error('Failed to load custom model:', e);
-        alert('加载模型失败');
-      } finally {
-        setIsLoadingModel(false);
-      }
-    } else {
-      alert('在打包应用中，请点击"选择文件"来选择自定义模型文件');
-    }
-  };
-
-  const downloadModel = async (modelId: string) => {
     setIsLoadingModel(true);
     try {
-      const res = await fetch(`http://127.0.0.1:8765/models/download/${modelId}`, {
-        method: 'POST'
-      });
-      const data = await res.json();
-      if (data.success) {
-        setCurrentModel(data.model);
-        setModelStatus('ready');
-        setShowModelSelector(false);
-        loadAvailableModels();
-      } else {
-        alert('下载模型失败: ' + (data.detail || '未知错误'));
+      const result = await selectModel();
+      if (result) {
+        const loadResult = await loadCustomModel(result.path, modelId);
+        if (loadResult.success) {
+          setCurrentModel(loadResult.model);
+          setModelStatus('ready');
+          
+          // Update available models to reflect the custom loaded model
+          setAvailableModels(prev => prev.map(m => {
+            if (m.id === modelId) {
+              // Calculate file size in MB
+              const fileSizeMB = Math.round(result.size / (1024 * 1024));
+              return {
+                ...m,
+                exists: true,
+                size_mb: fileSizeMB,
+                path: result.path
+              };
+            }
+            return m;
+          }));
+          
+          showToast('模型加载成功', 'success');
+        } else {
+          showToast('加载模型失败: ' + (loadResult.error || '未知错误'), 'error');
+        }
       }
     } catch (e) {
-      console.error('Failed to download model:', e);
-      alert('下载模型失败');
+      console.error('Failed to load custom model:', e);
+      showToast('加载模型失败', 'error');
     } finally {
       setIsLoadingModel(false);
     }
   };
 
+  const handleDownloadModel = async (url: string, modelName: string) => {
+    // 二次确认，特别是针对大文件
+    if (modelName.includes('2.0')) {
+      const confirmed = window.confirm(`下载 ${modelName} 模型需要约 1GB 的存储空间，且下载时间较长。\n\n是否继续前往下载页面？`);
+      if (!confirmed) return;
+    }
+    
+    try {
+      await openExternal(url);
+      showToast('正在打开下载页面...', 'info');
+    } catch (e) {
+      console.error('Failed to open download page:', e);
+      showToast('打开下载页面失败', 'error');
+    }
+  };
+
   useEffect(() => {
-    loadAvailableModels();
+    // Load models immediately
+    const initTimer = setTimeout(() => {
+      loadAvailableModels();
+    }, 100);
+    
+    // Disable context menu (right-click) to prevent "Reload" option
+    const handleContextMenu = (e: MouseEvent) => {
+      e.preventDefault();
+      return false;
+    };
+    
+    document.addEventListener('contextmenu', handleContextMenu);
+    
+    return () => {
+      clearTimeout(initTimer);
+      document.removeEventListener('contextmenu', handleContextMenu);
+    };
+  }, []);
+
+  // Listen for auto-load completion
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    
+    const setupListener = async () => {
+      try {
+        const { listen } = await import('@tauri-apps/api/event');
+        unlisten = await listen('model-auto-loaded', () => {
+          // Refresh model list when auto-load completes
+          loadAvailableModels();
+        });
+      } catch (e) {
+        console.error('Failed to setup event listener:', e);
+      }
+    };
+    
+    setupListener();
+    
+    return () => {
+      if (unlisten) {
+        unlisten();
+      }
+    };
   }, []);
 
   const handleSelectImage = () => {
@@ -325,14 +364,37 @@ function App() {
 
   // Process a single image frame
   const processImageFrame = async (base64Data: string): Promise<Blob> => {
-    const res = await fetch('http://127.0.0.1:8765/process', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ image: base64Data })
-    });
+    console.log('[Process] Starting image processing, base64 length:', base64Data.length);
     
-    if (!res.ok) throw new Error('处理失败');
-    return await res.blob();
+    try {
+      const data = await processImageWithModel(base64Data);
+      console.log('[Process] API response:', data);
+      
+      if (!data.success) {
+        console.error('[Process] API returned error:', data.error);
+        throw new Error(data.error || '处理失败');
+      }
+      
+      if (!data.image) {
+        console.error('[Process] No image in response');
+        throw new Error('处理结果为空');
+      }
+      
+      // Convert base64 response to Blob
+      const base64Image = data.image.replace(/^data:image\/\w+;base64,/, '');
+      console.log('[Process] Converted base64 length:', base64Image.length);
+      
+      const binaryString = atob(base64Image);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+      console.log('[Process] Created blob with size:', bytes.length);
+      return new Blob([bytes], { type: 'image/png' });
+    } catch (error) {
+      console.error('[Process] Error in processImageFrame:', error);
+      throw error;
+    }
   };
 
   // Cancel GIF processing
@@ -470,7 +532,7 @@ function App() {
   };
 
   // Process GIF file
-  const processGif = async (gifBuffer: ArrayBuffer, originalUrl: string) => {
+  const processGif = async (gifBuffer: ArrayBuffer, _originalUrl: string) => {
     abortControllerRef.current = new AbortController();
     const signal = abortControllerRef.current.signal;
     
@@ -796,19 +858,29 @@ function App() {
       showToast('AI 抠图完成！', 'success');
     } catch (e) {
       console.error('Processing failed:', e);
-      showToast('处理失败，请重试', 'error');
+      const errorMsg = (e as Error).message || '未知错误';
+      showToast(`处理失败: ${errorMsg}`, 'error');
+      
+      // 显示详细错误信息
+      alert(`抠图失败详情：\n${errorMsg}\n\n请检查：\n1. 是否正确打开 Tauri 应用（不是旧版 Electron）\n2. 模型是否成功加载\n3. 查看浏览器控制台获取更多错误信息`);
     } finally {
       setIsProcessing(false);
     }
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!processedImage) return;
     
-    const link = document.createElement('a');
-    link.href = processedImage;
-    link.download = 'removed_bg.png';
-    link.click();
+    try {
+      const defaultName = isOriginalGif ? 'removed_bg.gif' : 'removed_bg.png';
+      const result = await saveImage(processedImage, defaultName);
+      if (result) {
+        showToast('图片已导出', 'success');
+      }
+    } catch (e) {
+      console.error('Failed to save image:', e);
+      showToast('导出失败', 'error');
+    }
   };
 
   const handleDrop = (e: React.DragEvent) => {
@@ -836,12 +908,6 @@ function App() {
   const handleDragLeave = () => {
     setDragActive(false);
   };
-
-  const handleWheel = useCallback((e: React.WheelEvent) => {
-    e.preventDefault();
-    const delta = e.deltaY > 0 ? 0.9 : 1.1;
-    setScale(prev => Math.max(0.1, Math.min(10, prev * delta)));
-  }, []);
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     if (!originalImage && !processedImage) return;
@@ -1102,7 +1168,7 @@ function App() {
         setTranslateX(0);
         setTranslateY(0);
       }
-      showToast('图片已粘贴', 'success');
+      showToast('图片已加载，准备开始AI抠图', 'success');
     };
     img.src = imageUrl;
   };
@@ -1254,16 +1320,6 @@ function App() {
     }
   };
 
-  // Handle mouse move in original panel to show virtual cursor in result panel
-  const handleOriginalPanelMouseMove = (e: React.MouseEvent) => {
-    if (editMode === 'none' || !originalPanelRef.current || !outputCanvasRef.current) return;
-  };
-
-  // Handle mouse move in result panel to show virtual cursor in original panel
-  const handleResultPanelMouseMove = (e: React.MouseEvent) => {
-    if (editMode === 'none' || !resultPanelRef.current || !originalPanelRef.current) return;
-  };
-
   // Original panel drag handlers for edit mode
   const handleOriginalMouseDown = (e: React.MouseEvent) => {
     if (editMode === 'none' || !originalImage) return;
@@ -1284,41 +1340,10 @@ function App() {
     setIsOriginalDragging(false);
   };
 
-  // Draw perfect smooth circle using radial gradient - like the virtual cursor
-  const drawPerfectCircle = (ctx: CanvasRenderingContext2D, x: number, y: number, radius: number, isErase: boolean) => {
-    ctx.save();
-    
-    // Create radial gradient for anti-aliased edges
-    const gradient = ctx.createRadialGradient(x, y, 0, x, y, radius);
-    
-    if (isErase) {
-      // For erase: solid transparent center, fading to transparent edge
-      gradient.addColorStop(0, 'rgba(0, 0, 0, 1)');
-      gradient.addColorStop(0.85, 'rgba(0, 0, 0, 1)');
-      gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
-      ctx.fillStyle = gradient;
-      ctx.globalCompositeOperation = 'destination-out';
-    } else {
-      // For restore: we need to blend original image with gradient alpha
-      gradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
-      gradient.addColorStop(0.85, 'rgba(255, 255, 255, 1)');
-      gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
-      ctx.fillStyle = gradient;
-      ctx.globalCompositeOperation = 'destination-in';
-    }
-    
-    ctx.beginPath();
-    ctx.arc(x, y, radius, 0, Math.PI * 2);
-    ctx.fill();
-    
-    ctx.restore();
-  };
-
   const drawOnMask = (x: number, y: number) => {
-    if (!outputCanvasRef.current || !processedCanvasRef.current || !originalCanvasRef.current) return;
+    if (!outputCanvasRef.current || !originalCanvasRef.current) return;
 
     const outputCanvas = outputCanvasRef.current;
-    const processedCanvas = processedCanvasRef.current;
     const originalCanvas = originalCanvasRef.current;
     const outputCtx = outputCanvas.getContext('2d', { willReadFrequently: true });
     
@@ -1364,10 +1389,9 @@ function App() {
   };
 
   const drawLineOnMask = (from: { x: number; y: number }, to: { x: number; y: number }) => {
-    if (!outputCanvasRef.current || !processedCanvasRef.current || !originalCanvasRef.current) return;
+    if (!outputCanvasRef.current || !originalCanvasRef.current) return;
 
     const outputCanvas = outputCanvasRef.current;
-    const processedCanvas = processedCanvasRef.current;
     const originalCanvas = originalCanvasRef.current;
     const outputCtx = outputCanvas.getContext('2d', { willReadFrequently: true });
     
@@ -1606,22 +1630,24 @@ function App() {
         const composedBlob = await composeGifWithBackground();
         if (composedBlob) {
           const url = URL.createObjectURL(composedBlob);
-          const link = document.createElement('a');
-          link.href = url;
-          link.download = 'removed_bg_edited.gif';
-          link.click();
+          const result = await saveImage(url, 'removed_bg_edited.gif');
           URL.revokeObjectURL(url);
-          showToast('GIF 已导出', 'success');
+          if (result) {
+            showToast('GIF 已导出', 'success');
+          } else {
+            showToast('导出失败', 'error');
+          }
         } else {
           showToast('GIF 合成失败', 'error');
         }
       } else {
         // No background, export as-is
-        const link = document.createElement('a');
-        link.href = processedImage;
-        link.download = 'removed_bg_edited.gif';
-        link.click();
-        showToast('GIF 已导出', 'success');
+        const result = await saveImage(processedImage, 'removed_bg.gif');
+        if (result) {
+          showToast('GIF 已导出', 'success');
+        } else {
+          showToast('导出失败', 'error');
+        }
       }
       return;
     }
@@ -1629,101 +1655,51 @@ function App() {
     const composedCanvas = await composeImageWithBackground();
     if (!composedCanvas) return;
     
-    const link = document.createElement('a');
-    link.href = composedCanvas.toDataURL('image/png');
-    link.download = 'removed_bg_edited.png';
-    link.click();
-    showToast('图片已导出', 'success');
+    const result = await saveImage(composedCanvas.toDataURL('image/png'), 'removed_bg_edited.png');
+    if (result) {
+      showToast('图片已导出', 'success');
+    } else {
+      showToast('导出失败', 'error');
+    }
   };
 
   const handleCopyToClipboard = async () => {
-    // Check if it's a GIF
-    if (isOriginalGif && processedImage) {
-      try {
-        let blob: Blob;
-        
-        // Check if background should be applied
-        if (bgImage || bgColor !== 'transparent') {
-          showToast('正在合成背景...', 'info');
-          const composedBlob = await composeGifWithBackground();
-          if (!composedBlob) {
-            showToast('GIF 合成失败', 'error');
-            return;
-          }
-          blob = composedBlob;
-        } else {
-          const response = await fetch(processedImage);
-          blob = await response.blob();
-        }
-        
-        // Try to write as GIF first
-        try {
-          await navigator.clipboard.write([
-            new ClipboardItem({ 'image/gif': blob })
-          ]);
-          showToast('GIF 已复制到剪贴板', 'success');
-        } catch (writeErr) {
-          // If GIF format not supported, fall back to PNG (first frame only)
-          console.warn('GIF format not supported on clipboard, falling back to PNG');
-          
-          // Convert first frame to PNG
-          const img = new Image();
-          await new Promise<void>((resolve, reject) => {
-            img.onload = () => resolve();
-            img.onerror = reject;
-            img.src = processedImage;
-          });
-          
-          const canvas = document.createElement('canvas');
-          canvas.width = img.width;
-          canvas.height = img.height;
-          const ctx = canvas.getContext('2d');
-          if (!ctx) throw new Error('无法创建 canvas context');
-          
-          // Draw background if set
-          if (bgImage) {
-            const bgImg = new Image();
-            await new Promise<void>((resolve, reject) => {
-              bgImg.onload = () => resolve();
-              bgImg.onerror = reject;
-              bgImg.src = bgImage;
-            });
-            ctx.drawImage(bgImg, 0, 0, canvas.width, canvas.height);
-          } else if (bgColor !== 'transparent') {
-            ctx.fillStyle = bgColor;
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-          }
-          
-          ctx.drawImage(img, 0, 0);
-          
-          canvas.toBlob(async (pngBlob) => {
-            if (pngBlob) {
-              await navigator.clipboard.write([
-                new ClipboardItem({ 'image/png': pngBlob })
-              ]);
-              showToast('已复制第一帧为 PNG（动画丢失）', 'success');
-            }
-          }, 'image/png');
-        }
-      } catch (err) {
-        console.error('Failed to copy GIF to clipboard:', err);
-        showToast('复制失败', 'error');
-      }
-      return;
-    }
-    
-    const composedCanvas = await composeImageWithBackground();
-    if (!composedCanvas) return;
+    if (!processedImage) return;
     
     try {
-      composedCanvas.toBlob(async (blob) => {
-        if (blob) {
-          await navigator.clipboard.write([
-            new ClipboardItem({ 'image/png': blob })
-          ]);
-          showToast('已复制到剪贴板', 'success');
+      let imageBlob: Blob;
+      
+      // If background is set, compose image first
+      if ((bgImage || bgColor !== 'transparent') && !isOriginalGif) {
+        const composedCanvas = await composeImageWithBackground();
+        if (!composedCanvas) {
+          showToast('合成失败', 'error');
+          return;
         }
-      }, 'image/png');
+        // Convert canvas to blob
+        imageBlob = await new Promise<Blob>((resolve, reject) => {
+          composedCanvas.toBlob((b) => {
+            if (b) resolve(b);
+            else reject(new Error('Failed to convert canvas to blob'));
+          }, 'image/png');
+        });
+      } else {
+        // Fetch blob from URL (works for both blob: URLs and data: URLs)
+        const response = await fetch(processedImage);
+        imageBlob = await response.blob();
+      }
+      
+      // Convert blob to base64
+      const reader = new FileReader();
+      const base64Promise = new Promise<string>((resolve) => {
+        reader.onloadend = () => resolve(reader.result as string);
+      });
+      reader.readAsDataURL(imageBlob);
+      const base64Data = await base64Promise;
+      
+      // Use Rust backend to copy to clipboard
+      await invoke('copy_image_to_clipboard', { imageData: base64Data });
+      showToast('已复制到剪贴板', 'success');
     } catch (err) {
       console.error('Failed to copy to clipboard:', err);
       showToast('复制失败', 'error');
@@ -1771,6 +1747,11 @@ function App() {
               <button className="modal-close" onClick={() => setShowModelSelector(false)}>×</button>
             </div>
             <div className="modal-content">
+              {availableModels.length === 0 && (
+                <div style={{padding: '20px', textAlign: 'center', color: '#666'}}>
+                  <p>暂无可用模型</p>
+                </div>
+              )}
               <div className="model-list">
                 {availableModels.map((m) => (
                   <div 
@@ -1779,41 +1760,49 @@ function App() {
                   >
                     <div className="model-info">
                       <span className="model-name">{m.display_name}</span>
-                      <span className="model-type">{m.type.toUpperCase()}</span>
+                      <span className="model-type">{m.type?.toUpperCase()}</span>
                     </div>
-                    {m.exists ? (
-                      <>
-                        <span className="model-size">{m.size_mb} MB</span>
-                        {currentModel?.path === m.path ? (
-                          <span className="model-loaded-badge">已加载</span>
-                        ) : (
-                          <button className="btn btn-small" onClick={() => loadFixedModel(m.id)}>
-                            加载
+                    <div className="model-actions">
+                      {/* 显示模型大小 */}
+                      <span className="model-size">{m.size_mb > 0 ? `${m.size_mb} MB` : '未下载'}</span>
+                      
+                      {m.exists ? (
+                        /* 模型存在时显示加载状态 */
+                        <>
+                          {currentModel?.name === m.name ? (
+                            <span className="model-loaded-badge">已加载</span>
+                          ) : (
+                            <button className="btn btn-small" onClick={() => handleLoadFixedModel(m.id)}>
+                              加载
+                            </button>
+                          )}
+                          {/* 2.0 模型始终显示下载按钮 */}
+                          {m.download_url && (
+                            <button 
+                              className="btn btn-small btn-link" 
+                              onClick={() => handleDownloadModel(m.download_url!, m.name)}
+                            >
+                              快捷下载
+                            </button>
+                          )}
+                        </>
+                      ) : (
+                        /* 模型不存在时显示选择和下载 */
+                        <>
+                          <button className="btn btn-small" onClick={() => selectCustomModel(m.id)}>
+                            选择文件
                           </button>
-                        )}
-                        {m.id !== '1.4' && (
-                          <button className="btn btn-small btn-outline" onClick={() => selectCustomModel(m.id)}>
-                            重选
-                          </button>
-                        )}
-                      </>
-                    ) : (
-                      <div className="model-actions">
-                        <button className="btn btn-small" onClick={() => selectCustomModel(m.id)}>
-                          选择文件
-                        </button>
-                        {m.download_url && (
-                          <a 
-                            className="btn btn-small btn-link" 
-                            href={m.download_url} 
-                            target="_blank" 
-                            rel="noopener noreferrer"
-                          >
-                            快捷下载
-                          </a>
-                        )}
-                      </div>
-                    )}
+                          {m.download_url && (
+                            <button 
+                              className="btn btn-small btn-link" 
+                              onClick={() => handleDownloadModel(m.download_url!, m.name)}
+                            >
+                              快捷下载
+                            </button>
+                          )}
+                        </>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -2203,7 +2192,6 @@ function App() {
               onClick={() => !originalImage && fileInputRef.current?.click()}
               onMouseDown={editMode === 'none' ? handleMouseDown : handleOriginalMouseDown}
               onMouseMove={editMode === 'none' ? handleMouseMove : (e) => {
-                handleOriginalPanelMouseMove(e);
                 handleOriginalMouseMove(e);
                 // Update both cursors simultaneously
                 const originalCursor = originalCursorRef.current;

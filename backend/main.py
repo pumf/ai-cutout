@@ -569,6 +569,31 @@ async def unload_model_endpoint():
     return {"success": True, "message": "Model unloaded"}
 
 
+@app.get("/models/download-status")
+async def get_download_status():
+    """Get model download status"""
+    from backend.model_manager import get_available_models
+    return {
+        "models": get_available_models(),
+        "model_dir": str(MODEL_DIR),
+        "current_model": current_model_info
+    }
+
+@app.post("/models/download/{model_id}")
+async def download_model_endpoint(model_id: str):
+    """Download a model"""
+    from backend.model_manager import download_model
+    
+    try:
+        success = download_model(model_id)
+        if success:
+            return {"success": True, "message": f"Model {model_id} downloaded"}
+        else:
+            raise HTTPException(status_code=500, detail="Download failed")
+    except Exception as e:
+        logger.error(f"Download error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/process")
 async def process_upload(request: Request):
     global model
