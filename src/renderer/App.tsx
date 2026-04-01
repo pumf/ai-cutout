@@ -1821,59 +1821,98 @@ function App() {
             </div>
             <div className="modal-content help-content">
               <div className="help-section help-intro">
-                <h4>关于小飞AI抠图</h4>
-                <p>一款完全本地运行的AI抠图工具，保护您的隐私。无需联网，随时随地快速去除图片背景。</p>
+                <h4>🎉 关于小飞AI抠图</h4>
+                <p>基于 Tauri + Rust 构建的 AI 智能抠图工具，安装包仅 170MB。完全本地运行，保护您的隐私，无需联网即可快速去除图片背景。</p>
               </div>
+              
               <div className="help-section">
                 <h4>📁 选择图片</h4>
-                <p>点击"选择图片"按钮，或直接将图片拖拽到窗口中。支持 PNG、JPG、WebP 格式。</p>
+                <p>点击"选择图片"按钮，或直接将图片拖拽到窗口中。支持 PNG、JPG、WebP、GIF 格式。</p>
               </div>
+              
               <div className="help-section">
                 <h4>🤖 AI 抠图</h4>
-                <p>点击"AI 抠图"按钮，AI 将自动识别并去除图片背景。首次使用需要选择 AI 模型。</p>
+                <p>点击"AI 抠图"按钮，AI 将自动识别并去除图片背景。首次启动会自动加载内置 RMBG-1.4 模型（约需 1-2 秒）。</p>
               </div>
+              
               <div className="help-section">
-                <h4>💾 保存结果</h4>
-                <p>处理完成后，点击"保存图片"按钮将结果保存到本地。</p>
+                <h4>🎨 背景替换</h4>
+                <p>处理完成后，可在右侧面板选择背景类型：</p>
+                <ul style={{marginLeft: '20px', marginTop: '8px'}}>
+                  <li>透明 - 保留透明背景</li>
+                  <li>纯色 - 选择预设颜色或自定义颜色</li>
+                  <li>图片 - 选择本地图片作为背景</li>
+                </ul>
               </div>
+              
               <div className="help-section">
-                <h4>🔄 切换模型</h4>
-                <p>点击右上角的模型名称可切换 AI 模型。RMBG-1.4 速度快，RMBG-2.0 效果更好。</p>
-                <p style={{marginTop: '8px'}}>
-                  <strong>RMBG-2.0 下载地址：</strong>
-                  <a 
-                    href="https://modelscope.cn/models/AI-ModelScope/RMBG-2.0/resolve/master/onnx/model.onnx" 
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    style={{color: '#3b82f6', marginLeft: '8px'}}
-                  >
-                    点击下载
-                  </a>
+                <h4>💾 导出与复制</h4>
+                <p>处理完成后：</p>
+                <ul style={{marginLeft: '20px', marginTop: '8px'}}>
+                  <li>点击"导出"按钮将图片保存到本地</li>
+                  <li>点击"复制"按钮将图片复制到剪贴板</li>
+                </ul>
+              </div>
+              
+              <div className="help-section">
+                <h4>🔄 模型管理</h4>
+                <p>点击顶部状态栏的模型名称可打开模型列表：</p>
+                <ul style={{marginLeft: '20px', marginTop: '8px'}}>
+                  <li><strong>RMBG-1.4 (速度快)</strong> - 内置模型，开箱即用，168MB</li>
+                  <li><strong>RMBG-2.0 (精度高)</strong> - 效果更好，需下载，约 1GB</li>
+                </ul>
+                <p style={{marginTop: '12px', color: '#666'}}>
+                  提示：RMBG-2.0 模型可在模型列表中点击"快捷下载"获取下载链接。
                 </p>
               </div>
+              
               <div className="help-section">
                 <h4>🖱️ 图片操作</h4>
-                <p>鼠标滚轮可缩放图片，按住鼠标左键可拖拽移动图片位置。</p>
+                <ul style={{marginLeft: '20px'}}>
+                  <li>鼠标滚轮 - 缩放图片</li>
+                  <li>按住左键拖拽 - 移动图片位置</li>
+                  <li>窗口最小尺寸 - 800×600</li>
+                </ul>
               </div>
+              
+              <div className="help-section">
+                <h4>⚡ 性能优化</h4>
+                <ul style={{marginLeft: '20px'}}>
+                  <li>安装包体积：170MB（相比旧版减少 50%）</li>
+                  <li>启动速度：秒开</li>
+                  <li>内存占用：更低</li>
+                  <li>技术栈：Tauri + Rust</li>
+                </ul>
+              </div>
+              
               <div className="help-section">
                 <h4>❓ 常见问题</h4>
                 <div className="faq-item">
                   <p><strong>Q: 首次运行需要联网吗？</strong></p>
-                  <p>A: 不需要，软件完全本地运行。首次启动时会自动加载内置的AI模型。</p>
+                  <p>A: 不需要。软件完全本地运行，内置 RMBG-1.4 模型已包含在安装包中。</p>
+                </div>
+                <div className="faq-item">
+                  <p><strong>Q: 如何下载 RMBG-2.0 模型？</strong></p>
+                  <p>A: 点击顶部模型名称打开模型列表，找到 RMBG-2.0，点击"快捷下载"按钮会在浏览器打开下载页面。下载后将 model.onnx 文件放到应用目录的 model_files/2.0/ 文件夹中。</p>
+                </div>
+                <div className="faq-item">
+                  <p><strong>Q: 复制到剪贴板失败怎么办？</strong></p>
+                  <p>A: 如果复制失败，可以使用"导出"功能将图片保存到本地，然后手动复制。某些应用可能不支持直接粘贴图片。</p>
                 </div>
                 <div className="faq-item">
                   <p><strong>Q: 支持批量处理吗？</strong></p>
-                  <p>A: 目前版本支持单张图片处理。</p>
+                  <p>A: 目前版本支持单张图片处理。GIF 动图会逐帧处理。</p>
                 </div>
                 <div className="faq-item">
                   <p><strong>Q: 为什么处理速度较慢？</strong></p>
-                  <p>A: 处理速度取决于电脑配置。推荐使用支持AI加速的CPU或GPU。</p>
+                  <p>A: 处理速度取决于电脑配置。首次加载模型需要一定时间，后续处理会更快。推荐使用支持 AI 加速的 CPU。</p>
                 </div>
                 <div className="faq-item">
-                  <p><strong>Q: 如何切换AI模型？</strong></p>
-                  <p>A: 点击右上角的模型名称，在弹出的模型选择界面中可以切换或加载自定义模型。</p>
+                  <p><strong>Q: Windows/Linux 版本在哪里？</strong></p>
+                  <p>A: 目前主要支持 macOS。Windows 和 Linux 版本正在开发中，敬请期待。</p>
                 </div>
               </div>
+              
               <div className="help-section help-wechat">
                 <h4>📱 联系我们</h4>
                 <p>如有问题或建议，欢迎加入微信群交流：</p>
