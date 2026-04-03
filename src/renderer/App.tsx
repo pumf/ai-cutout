@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import './App.css';
 import { GifReader, GifWriter } from 'omggif';
-import { listFixedModels, loadFixedModel, loadCustomModel, processImageWithModel, selectModel, openExternal, saveImage } from '../tauri';
+import { listFixedModels, loadFixedModel, loadCustomModel, processImageWithModel, selectModel, openExternal, saveImage, selectImage } from '../tauri';
 import { invoke } from '@tauri-apps/api/core';
+import { TitleBar } from './components/TitleBar';
 
 function App() {
   const [originalImage, setOriginalImage] = useState<string | null>(null);
@@ -325,15 +326,24 @@ function App() {
     };
   }, []);
 
-  const handleSelectImage = () => {
-    // Check if there's already an image
-    if (originalImage || processedImage) {
-      // Clear the file input to allow re-selecting the same file
-      if (fileInputRef.current) {
-        fileInputRef.current.value = '';
+  const handleSelectImage = async () => {
+    try {
+      const result = await selectImage();
+      if (!result) return; // User cancelled
+
+      if (originalImage || processedImage) {
+        // Show confirmation if there's already an image
+        // Store the image data directly
+        setPendingImageUrl(result.data);
+        setShowPasteConfirm(true);
+      } else {
+        // Load directly if no image exists
+        loadImageWithFit(result.data);
       }
+    } catch (error) {
+      console.error('Failed to select image:', error);
+      showToast('选择图片失败', 'error');
     }
-    fileInputRef.current?.click();
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1669,22 +1679,44 @@ function App() {
     try {
       let imageBlob: Blob;
       
-      // If background is set, compose image first
-      if ((bgImage || bgColor !== 'transparent') && !isOriginalGif) {
+      // If it's a GIF, compose with background
+      if (isOriginalGif) {
+        if (bgImage || bgColor !== 'transparent') {
+          showToast('正在合成背景...', 'info');
+          const composedBlob = await composeGifWithBackground();
+          if (!composedBlob) {
+            showToast('合成失败', 'error');
+            return;
+          }
+          imageBlob = composedBlob;
+        } else {
+          // No background, use processed GIF as-is
+          const response = await fetch(processedImage);
+          imageBlob = await response.blob();
+        }
+      } else if (bgImage || bgColor !== 'transparent') {
+        // Compose image with background (same as export)
         const composedCanvas = await composeImageWithBackground();
         if (!composedCanvas) {
           showToast('合成失败', 'error');
           return;
         }
-        // Convert canvas to blob
         imageBlob = await new Promise<Blob>((resolve, reject) => {
           composedCanvas.toBlob((b) => {
             if (b) resolve(b);
             else reject(new Error('Failed to convert canvas to blob'));
           }, 'image/png');
         });
+      } else if (outputCanvasRef.current) {
+        // Use current output canvas (includes erase/restore edits)
+        imageBlob = await new Promise<Blob>((resolve, reject) => {
+          outputCanvasRef.current!.toBlob((b) => {
+            if (b) resolve(b);
+            else reject(new Error('Failed to convert canvas to blob'));
+          }, 'image/png');
+        });
       } else {
-        // Fetch blob from URL (works for both blob: URLs and data: URLs)
+        // Fallback: use processed image as-is
         const response = await fetch(processedImage);
         imageBlob = await response.blob();
       }
@@ -1708,36 +1740,12 @@ function App() {
 
   return (
     <div className="app">
-      <div className="titlebar">
-        <div className="titlebar-drag">
-          <img className="titlebar-logo" src="./logo.png" alt="logo" />
-          <span className="titlebar-title">小飞AI抠图 1.0</span>
-        </div>
-        <div className="titlebar-controls">
-          <button 
-            className="titlebar-model" 
-            onClick={() => setShowModelSelector(true)}
-            title="点击切换AI模型"
-          >
-            <span>🤖</span>
-            <span>{currentModel?.display_name || currentModel?.name || '选择模型'}</span>
-          </button>
-          <div 
-            className={`titlebar-status ${modelStatus}`}
-            title={modelStatus === 'ready' ? '模型已加载，可以开始处理' : '模型未加载，请先选择模型'}
-          >
-            <span className="status-dot"></span>
-            <span>{modelStatus === 'ready' ? '已加载' : '未加载'}</span>
-          </div>
-          <button className="titlebar-btn titlebar-btn-help" onClick={() => setShowHelp(true)} title="查看使用说明和常见问题">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <circle cx="12" cy="12" r="10"/>
-              <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
-              <line x1="12" y1="17" x2="12.01" y2="17"/>
-            </svg>
-          </button>
-        </div>
-      </div>
+      <TitleBar 
+        currentModel={currentModel}
+        modelStatus={modelStatus}
+        onShowModelSelector={() => setShowModelSelector(true)}
+        onShowHelp={() => setShowHelp(true)}
+      />
 
       {showModelSelector && (
         <div className="modal-overlay" onClick={() => setShowModelSelector(false)}>
@@ -1816,116 +1824,140 @@ function App() {
         <div className="modal-overlay" onClick={() => setShowHelp(false)}>
           <div className="modal modal-help" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
-              <h3>使用说明</h3>
+              <h3>帮助说明</h3>
               <button className="modal-close" onClick={() => setShowHelp(false)}>×</button>
             </div>
             <div className="modal-content help-content">
-              <div className="help-section help-intro">
-                <h4>🎉 关于小飞AI抠图</h4>
-                <p>基于 Tauri + Rust 构建的 AI 智能抠图工具，安装包仅 170MB。完全本地运行，保护您的隐私，无需联网即可快速去除图片背景。</p>
-              </div>
-              
-              <div className="help-section">
-                <h4>📁 选择图片</h4>
-                <p>点击"选择图片"按钮，或直接将图片拖拽到窗口中。支持 PNG、JPG、WebP、GIF 格式。</p>
-              </div>
-              
-              <div className="help-section">
-                <h4>🤖 AI 抠图</h4>
-                <p>点击"AI 抠图"按钮，AI 将自动识别并去除图片背景。首次启动会自动加载内置 RMBG-1.4 模型（约需 1-2 秒）。</p>
-              </div>
-              
-              <div className="help-section">
-                <h4>🎨 背景替换</h4>
-                <p>处理完成后，可在右侧面板选择背景类型：</p>
-                <ul style={{marginLeft: '20px', marginTop: '8px'}}>
-                  <li>透明 - 保留透明背景</li>
-                  <li>纯色 - 选择预设颜色或自定义颜色</li>
-                  <li>图片 - 选择本地图片作为背景</li>
-                </ul>
-              </div>
-              
-              <div className="help-section">
-                <h4>💾 导出与复制</h4>
-                <p>处理完成后：</p>
-                <ul style={{marginLeft: '20px', marginTop: '8px'}}>
-                  <li>点击"导出"按钮将图片保存到本地</li>
-                  <li>点击"复制"按钮将图片复制到剪贴板</li>
-                </ul>
-              </div>
-              
-              <div className="help-section">
-                <h4>🔄 模型管理</h4>
-                <p>点击顶部状态栏的模型名称可打开模型列表：</p>
-                <ul style={{marginLeft: '20px', marginTop: '8px'}}>
-                  <li><strong>RMBG-1.4 (速度快)</strong> - 内置模型，开箱即用，168MB</li>
-                  <li><strong>RMBG-2.0 (精度高)</strong> - 效果更好，需下载，约 1GB</li>
-                </ul>
-                <p style={{marginTop: '12px', color: '#666'}}>
-                  提示：RMBG-2.0 模型可在模型列表中点击"快捷下载"获取下载链接。
-                </p>
-              </div>
-              
-              <div className="help-section">
-                <h4>🖱️ 图片操作</h4>
-                <ul style={{marginLeft: '20px'}}>
-                  <li>鼠标滚轮 - 缩放图片</li>
-                  <li>按住左键拖拽 - 移动图片位置</li>
-                  <li>窗口最小尺寸 - 800×600</li>
-                </ul>
-              </div>
-              
-              <div className="help-section">
-                <h4>⚡ 性能优化</h4>
-                <ul style={{marginLeft: '20px'}}>
-                  <li>安装包体积：170MB（相比旧版减少 50%）</li>
-                  <li>启动速度：秒开</li>
-                  <li>内存占用：更低</li>
-                  <li>技术栈：Tauri + Rust</li>
-                </ul>
-              </div>
-              
-              <div className="help-section">
-                <h4>❓ 常见问题</h4>
-                <div className="faq-item">
-                  <p><strong>Q: 首次运行需要联网吗？</strong></p>
-                  <p>A: 不需要。软件完全本地运行，内置 RMBG-1.4 模型已包含在安装包中。</p>
+              <div className="help-intro">
+                <div className="help-intro-icon">
+                  <img src="./logo.png" alt="logo" />
                 </div>
-                <div className="faq-item">
-                  <p><strong>Q: 如何下载 RMBG-2.0 模型？</strong></p>
-                  <p>A: 点击顶部模型名称打开模型列表，找到 RMBG-2.0，点击"快捷下载"按钮会在浏览器打开下载页面。下载后将 model.onnx 文件放到应用目录的 model_files/2.0/ 文件夹中。</p>
-                </div>
-                <div className="faq-item">
-                  <p><strong>Q: 复制到剪贴板失败怎么办？</strong></p>
-                  <p>A: 如果复制失败，可以使用"导出"功能将图片保存到本地，然后手动复制。某些应用可能不支持直接粘贴图片。</p>
-                </div>
-                <div className="faq-item">
-                  <p><strong>Q: 支持批量处理吗？</strong></p>
-                  <p>A: 目前版本支持单张图片处理。GIF 动图会逐帧处理。</p>
-                </div>
-                <div className="faq-item">
-                  <p><strong>Q: 为什么处理速度较慢？</strong></p>
-                  <p>A: 处理速度取决于电脑配置。首次加载模型需要一定时间，后续处理会更快。推荐使用支持 AI 加速的 CPU。</p>
-                </div>
-                <div className="faq-item">
-                  <p><strong>Q: Windows/Linux 版本在哪里？</strong></p>
-                  <p>A: 目前主要支持 macOS。Windows 和 Linux 版本正在开发中，敬请期待。</p>
-                </div>
+                <h2>小飞AI抠图</h2>
+                <p>完全本地运行的 AI 智能抠图工具，安装包仅 170MB，保护您的隐私。</p>
               </div>
-              
-              <div className="help-section help-wechat">
-                <h4>📱 联系我们</h4>
-                <p>如有问题或建议，欢迎加入微信群交流：</p>
-                <div className="wechat-qr">
-                  <div className="qr-item">
-                    <img src="./grcode.jpg" alt="个人微信二维码" />
-                    <span>个人微信</span>
-                  </div>
-                  <div className="qr-item">
-                    <img src="./qrcode.jpg" alt="微信群二维码" />
-                    <span>扫码入群</span>
+
+              <div className="help-features">
+                <div className="feature-item">
+                  <div className="feature-icon">🔒</div>
+                  <div className="feature-text">
+                    <h4>完全离线</h4>
+                    <p>所有处理均在本地完成，无需联网，保护隐私</p>
                   </div>
                 </div>
+                <div className="feature-item">
+                  <div className="feature-icon">⚡</div>
+                  <div className="feature-text">
+                    <h4>快速高效</h4>
+                    <p>基于 RMBG 模型，毫秒级处理速度</p>
+                  </div>
+                </div>
+                <div className="feature-item">
+                  <div className="feature-icon">🎨</div>
+                  <div className="feature-text">
+                    <h4>背景替换</h4>
+                    <p>支持纯色、自定义颜色或图片背景</p>
+                  </div>
+                </div>
+                <div className="feature-item">
+                  <div className="feature-icon">🎬</div>
+                  <div className="feature-text">
+                    <h4>GIF 支持</h4>
+                    <p>逐帧处理 GIF 动图，保留动画效果</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="help-guide">
+                <h3>快速上手</h3>
+                <div className="guide-steps">
+                  <div className="guide-step">
+                    <div className="step-number">1</div>
+                    <div className="step-content">
+                      <h4>选择图片</h4>
+                      <p>点击"选择"按钮或拖拽图片到窗口，支持 PNG、JPG、WebP、GIF 格式</p>
+                    </div>
+                  </div>
+                  <div className="guide-step">
+                    <div className="step-number">2</div>
+                    <div className="step-content">
+                      <h4>AI 抠图</h4>
+                      <p>点击"抠图"按钮，AI 自动去除背景，首次加载约 1-2 秒</p>
+                    </div>
+                  </div>
+                  <div className="guide-step">
+                    <div className="step-number">3</div>
+                    <div className="step-content">
+                      <h4>编辑与导出</h4>
+                      <p>替换背景、擦除修补，完成后导出或复制到剪贴板</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="help-shortcuts">
+                <h3>快捷键</h3>
+                <div className="shortcut-list">
+                  <div className="shortcut-item">
+                    <kbd>⌘</kbd> + <kbd>O</kbd>
+                    <span>选择图片</span>
+                  </div>
+                  <div className="shortcut-item">
+                    <kbd>⌘</kbd> + <kbd>S</kbd>
+                    <span>导出图片</span>
+                  </div>
+                  <div className="shortcut-item">
+                    <kbd>⌘</kbd> + <kbd>C</kbd>
+                    <span>复制到剪贴板</span>
+                  </div>
+                  <div className="shortcut-item">
+                    <kbd>⌘</kbd> + <kbd>V</kbd>
+                    <span>粘贴图片</span>
+                  </div>
+                  <div className="shortcut-item">
+                    <kbd>⌘</kbd> + <kbd>Z</kbd>
+                    <span>撤回操作</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="help-faq">
+                <h3>常见问题</h3>
+                <div className="faq-item">
+                  <p className="faq-q">Q: 首次运行需要联网吗？</p>
+                  <p className="faq-a">A: 不需要。软件完全本地运行，内置 RMBG-1.4 模型。</p>
+                </div>
+                <div className="faq-item">
+                  <p className="faq-q">Q: 如何下载 RMBG-2.0 模型？</p>
+                  <p className="faq-a">A: 点击顶部模型名称打开列表，找到 RMBG-2.0 点击"快捷下载"，将 model.onnx 放到 model_files/2.0/ 文件夹。</p>
+                </div>
+                <div className="faq-item">
+                  <p className="faq-q">Q: 支持哪些图片格式？</p>
+                  <p className="faq-a">A: 支持 PNG、JPG/JPEG、WebP、GIF、BMP 格式。</p>
+                </div>
+                <div className="faq-item">
+                  <p className="faq-q">Q: 处理速度慢怎么办？</p>
+                  <p className="faq-a">A: 速度取决于电脑配置。首次加载模型需要时间，后续处理更快。推荐使用 M 系列芯片的 Mac。</p>
+                </div>
+              </div>
+
+              <div className="help-contact">
+                <h3>开源地址</h3>
+                <p>本项目已开源，欢迎 Star、Fork 和提交 PR：</p>
+                <a 
+                  className="github-link" 
+                  href="https://github.com/pumf/ai-cutout" 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    import('@tauri-apps/plugin-shell').then(({ open }) => open('https://github.com/pumf/ai-cutout'));
+                  }}
+                >
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                  </svg>
+                  <span>github.com/pumf/ai-cutout</span>
+                </a>
               </div>
             </div>
           </div>

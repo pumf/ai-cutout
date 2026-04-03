@@ -8,6 +8,11 @@ use serde::{Deserialize, Serialize};
 use tauri::{Emitter, Manager, State};
 use tokio::sync::Mutex;
 
+#[cfg(target_os = "macos")]
+use cocoa::base::{id, nil, NO, YES};
+#[cfg(target_os = "macos")]
+use objc::{msg_send, sel, sel_impl};
+
 mod model;
 
 pub struct AppState {
@@ -372,6 +377,30 @@ fn main() {
             copy_image_to_clipboard
         ])
         .setup(|app| {
+            // Configure window for rounded corners on macOS
+            #[cfg(target_os = "macos")]
+            {
+                let window = app.get_webview_window("main").unwrap();
+                let ns_window = window.ns_window().unwrap() as id;
+                
+                unsafe {
+                    // Make window non-opaque with clear background
+                    let _: () = msg_send![ns_window, setOpaque: NO];
+                    let _: () = msg_send![ns_window, setBackgroundColor: cocoa::appkit::NSColor::clearColor(nil)];
+                    let _: () = msg_send![ns_window, setHasShadow: true];
+                    
+                    // Set corner radius on the content view's layer
+                    let content_view: id = msg_send![ns_window, contentView];
+                    if content_view != nil {
+                        let _: () = msg_send![content_view, setWantsLayer: YES];
+                        let layer: id = msg_send![content_view, layer];
+                        if layer != nil {
+                            let _: () = msg_send![layer, setCornerRadius: 10.0_f64];
+                        }
+                    }
+                }
+            }
+            
             // Try to auto-load model on startup
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {

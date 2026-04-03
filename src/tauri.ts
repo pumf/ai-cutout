@@ -8,8 +8,8 @@ export async function selectImage(): Promise<{path: string; data: string; name: 
   const selected = await open({
     multiple: false,
     filters: [{
-      name: 'Images',
-      extensions: ['png', 'jpg', 'jpeg', 'webp']
+      name: '图片文件',
+      extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp']
     }]
   });
   
@@ -19,8 +19,27 @@ export async function selectImage(): Promise<{path: string; data: string; name: 
   const name = path.split('/').pop() || 'image';
   
   const data = await readFile(path);
-  const base64 = btoa(String.fromCharCode(...data));
-  const mimeType = path.endsWith('.png') ? 'image/png' : 'image/jpeg';
+  // Convert Uint8Array to base64 without spread operator (avoid stack overflow for large files)
+  let binary = '';
+  const len = data.length;
+  const chunkSize = 65536; // Process in chunks to avoid stack overflow
+  for (let i = 0; i < len; i += chunkSize) {
+    const chunk = data.subarray(i, i + chunkSize);
+    binary += String.fromCharCode.apply(null, Array.from(chunk));
+  }
+  const base64 = btoa(binary);
+  
+  // 根据文件扩展名确定 MIME 类型
+  const ext = path.split('.').pop()?.toLowerCase() || '';
+  const mimeTypeMap: Record<string, string> = {
+    'png': 'image/png',
+    'jpg': 'image/jpeg',
+    'jpeg': 'image/jpeg',
+    'webp': 'image/webp',
+    'gif': 'image/gif',
+    'bmp': 'image/bmp'
+  };
+  const mimeType = mimeTypeMap[ext] || 'image/png';
   
   return { path, data: `data:${mimeType};base64,${base64}`, name };
 }
