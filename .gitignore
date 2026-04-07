@@ -5,9 +5,9 @@ __pycache__/
 venv/
 backend/output/
 *.egg-info/
-model_files/
 dist/
 build/
 release/
 *.dmg
 *.spec
+venv-minimal/

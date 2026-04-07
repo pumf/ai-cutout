@@ -1,0 +1,17 @@
+# Ignore files for Docker build
+.git
+.gitignore
+.github
+*.md
+!README.md
+!BUILD_SUMMARY.md
+node_modules
+src-tauri/target
+release-builds
+*.dmg
+*.app
+venv
+venv-minimal
+__pycache__
+*.pyc
+.DS_Store
