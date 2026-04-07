@@ -15,7 +15,8 @@
     "build:electron": "tsc -p tsconfig.main.json",
     "package": "npm run build && electron-builder --mac",
     "package:tauri": "npm run build:renderer && npx tauri build",
-    "start": "electron ."
+    "start": "electron .",
+    "tauri": "tauri"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
@@ -32,6 +33,7 @@
     "react-dom": "^18.2.0"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0",
     "@types/node": "^20.10.0",
     "@types/react": "^18.2.0",
     "@types/react-dom": "^18.2.0",
