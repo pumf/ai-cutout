@@ -34,7 +34,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["dmg", "app", "msi", "nsis", "appimage", "deb"],
+    "targets": ["dmg", "app", "nsis", "appimage", "deb"],
     "category": "GraphicsAndDesign",
     "copyright": "Copyright (c) 2025",
     "macOS": {
@@ -42,6 +42,11 @@
       "minimumSystemVersion": "10.13",
       "signingIdentity": null,
       "entitlements": null
+    },
+    "windows": {
+      "wix": {
+        "language": "en-US"
+      }
     },
     "resources": {
       "../model_files": "model_files"
