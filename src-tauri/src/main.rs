@@ -3,7 +3,6 @@
 
 use std::path::PathBuf;
 
-use ort::session::Session;
 use serde::{Deserialize, Serialize};
 use tauri::{Emitter, Manager, State};
 use tokio::sync::Mutex;
@@ -14,9 +13,10 @@ use cocoa::base::{id, nil, NO, YES};
 use objc::{msg_send, sel, sel_impl};
 
 mod model;
+use model::Model;
 
 pub struct AppState {
-    pub model: Mutex<Option<Session>>,
+    pub model: Mutex<Option<Model>>,
     pub model_info: Mutex<ModelInfo>,
 }
 
@@ -155,13 +155,13 @@ async fn load_fixed_model(
     }
 
     // Load the ONNX model
-    let session = model::load_model(&model_path)
+    let model = model::load_model(&model_path)
         .map_err(|e| format!("Failed to load model: {}", e))?;
 
     // Update state
     {
-        let mut model = state.model.lock().await;
-        *model = Some(session);
+        let mut m = state.model.lock().await;
+        *m = Some(model);
     }
 
     {
@@ -193,7 +193,7 @@ async fn load_custom_model(
     }
 
     // Load the ONNX model
-    let session = model::load_model(&path)
+    let model = model::load_model(&path)
         .map_err(|e| format!("Failed to load model: {}", e))?;
 
     let (model_name, model_display_name) = match model_id.as_str() {
@@ -204,8 +204,8 @@ async fn load_custom_model(
 
     // Update state
     {
-        let mut model = state.model.lock().await;
-        *model = Some(session);
+        let mut m = state.model.lock().await;
+        *m = Some(model);
     }
 
     {
@@ -264,8 +264,8 @@ async fn process_image(
     // Process image - acquire lock for processing
     let result = {
         let mut model = state.model.lock().await;
-        let session = model.as_mut().unwrap();
-        model::process_image_with_model(session, &image_data).await
+        let m = model.as_mut().unwrap();
+        model::process_image_with_model(m, &image_data).await
     };
 
     match result {
@@ -415,9 +415,9 @@ fn main() {
                     
                     if model_path.exists() {
                         match model::load_model(&model_path) {
-                            Ok(session) => {
-                                let mut model = state.model.lock().await;
-                                *model = Some(session);
+                            Ok(model) => {
+                                let mut m = state.model.lock().await;
+                                *m = Some(model);
                                 
                                 let mut model_info = state.model_info.lock().await;
                                 *model_info = ModelInfo {

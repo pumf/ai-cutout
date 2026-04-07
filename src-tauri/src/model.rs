@@ -2,31 +2,27 @@ use std::path::Path;
 
 use image::{imageops::FilterType, ImageBuffer, ImageEncoder};
 use ndarray::Array;
-use ort::session::{Session, builder::GraphOptimizationLevel};
-use ort::value::Value;
+use tract_onnx::prelude::*;
 
 fn to_string_error<E: std::fmt::Display>(e: E) -> String {
     e.to_string()
 }
 
-pub fn load_model<P: AsRef<Path>>(model_path: P) -> Result<Session, String> {
-    // Read model file into memory
-    let model_bytes = std::fs::read(model_path).map_err(to_string_error)?;
-    
-    let session = Session::builder()
+pub fn load_model<P: AsRef<Path>>(model_path: P) -> Result<SimplePlan<TypedFact, Box<dyn TypedOp>, Graph<TypedFact, Box<dyn TypedOp>>>, String> {
+    // Load ONNX model using tract
+    let model = tract_onnx::onnx()
+        .model_for_path(model_path)
         .map_err(to_string_error)?
-        .with_optimization_level(GraphOptimizationLevel::Level3)
+        .into_optimized()
         .map_err(to_string_error)?
-        .with_intra_threads(4)
-        .map_err(to_string_error)?
-        .commit_from_memory(&model_bytes)
+        .into_runnable()
         .map_err(to_string_error)?;
 
-    Ok(session)
+    Ok(model)
 }
 
 pub async fn process_image_with_model(
-    session: &mut Session,
+    model: &mut SimplePlan<TypedFact, Box<dyn TypedOp>, Graph<TypedFact, Box<dyn TypedOp>>>,
     image_data: &[u8],
 ) -> Result<Vec<u8>, String> {
     // Load image
@@ -57,17 +53,20 @@ pub async fn process_image_with_model(
 
     let input_array = Array::from_shape_vec((1, 3, 1024, 1024), input_data)
         .map_err(|e| e.to_string())?;
-    let input_value = Value::from_array(input_array)
-        .map_err(to_string_error)?;
-
+    
+    // Convert to tract tensor
+    let input_tensor: Tensor = input_array.into();
+    
     // Run inference
-    let outputs = session.run(ort::inputs![input_value])
+    let outputs = model.run(tvec!(input_tensor.into()))
         .map_err(to_string_error)?;
-    let output_tensor = outputs[0].try_extract_tensor::<f32>()
+    
+    // Extract output tensor
+    let output_tensor = outputs[0].to_array_view::<f32>()
         .map_err(to_string_error)?;
     
     // Extract the data from the tensor
-    let mask_data: Vec<f32> = output_tensor.1.iter().copied().collect();
+    let mask_data: Vec<f32> = output_tensor.iter().copied().collect();
 
     // Normalize mask to 0-255
     let min_val = mask_data.iter().cloned().fold(f32::INFINITY, f32::min);
