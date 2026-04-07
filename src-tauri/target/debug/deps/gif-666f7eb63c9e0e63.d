@@ -1,0 +1,12 @@
+/Users/mac/Project/open_code/ai-cutout/src-tauri/target/debug/deps/gif-666f7eb63c9e0e63.d: /Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gif-0.14.1/src/lib.rs /Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gif-0.14.1/src/common.rs /Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gif-0.14.1/src/encoder.rs /Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gif-0.14.1/src/reader/mod.rs /Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gif-0.14.1/src/reader/converter.rs /Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gif-0.14.1/src/reader/decoder.rs /Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gif-0.14.1/src/traits.rs /Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gif-0.14.1/src/../README.md
+
+/Users/mac/Project/open_code/ai-cutout/src-tauri/target/debug/deps/libgif-666f7eb63c9e0e63.rmeta: /Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gif-0.14.1/src/lib.rs /Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gif-0.14.1/src/common.rs /Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gif-0.14.1/src/encoder.rs /Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gif-0.14.1/src/reader/mod.rs /Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gif-0.14.1/src/reader/converter.rs /Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gif-0.14.1/src/reader/decoder.rs /Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gif-0.14.1/src/traits.rs /Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gif-0.14.1/src/../README.md
+
+/Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gif-0.14.1/src/lib.rs:
+/Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gif-0.14.1/src/common.rs:
+/Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gif-0.14.1/src/encoder.rs:
+/Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gif-0.14.1/src/reader/mod.rs:
+/Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gif-0.14.1/src/reader/converter.rs:
+/Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gif-0.14.1/src/reader/decoder.rs:
+/Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gif-0.14.1/src/traits.rs:
+/Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gif-0.14.1/src/../README.md:

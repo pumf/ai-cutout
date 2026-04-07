@@ -1,0 +1,8 @@
+/Users/mac/Project/open_code/ai-cutout/src-tauri/target/debug/deps/tauri_plugin_clipboard_manager-a09277b663c01158.d: /Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tauri-plugin-clipboard-manager-2.3.2/src/lib.rs /Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tauri-plugin-clipboard-manager-2.3.2/src/desktop.rs /Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tauri-plugin-clipboard-manager-2.3.2/src/commands.rs /Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tauri-plugin-clipboard-manager-2.3.2/src/error.rs
+
+/Users/mac/Project/open_code/ai-cutout/src-tauri/target/debug/deps/libtauri_plugin_clipboard_manager-a09277b663c01158.rmeta: /Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tauri-plugin-clipboard-manager-2.3.2/src/lib.rs /Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tauri-plugin-clipboard-manager-2.3.2/src/desktop.rs /Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tauri-plugin-clipboard-manager-2.3.2/src/commands.rs /Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tauri-plugin-clipboard-manager-2.3.2/src/error.rs
+
+/Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tauri-plugin-clipboard-manager-2.3.2/src/lib.rs:
+/Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tauri-plugin-clipboard-manager-2.3.2/src/desktop.rs:
+/Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tauri-plugin-clipboard-manager-2.3.2/src/commands.rs:
+/Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tauri-plugin-clipboard-manager-2.3.2/src/error.rs:

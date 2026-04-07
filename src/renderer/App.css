@@ -686,7 +686,6 @@ body {
   position: relative;
   overflow: hidden;
   cursor: grab;
-  transition: all 0.2s;
 }
 
 .panel-content:active {
@@ -882,7 +881,8 @@ body {
   top: 50%;
   left: 50%;
   transform-origin: center center;
-  transition: transform 0.05s ease-out;
+  will-change: transform;
+  backface-visibility: hidden;
 }
 
 .image-container .preview-image {

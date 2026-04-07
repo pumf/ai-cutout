@@ -1,0 +1,12 @@
+/Users/mac/Project/open_code/ai-cutout/src-tauri/target/debug/deps/osakit-871461fb8cca92c6.d: /Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/osakit-0.3.1/src/lib.rs /Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/osakit-0.3.1/src/export/mod.rs /Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/osakit-0.3.1/src/export/script.rs /Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/osakit-0.3.1/src/export/value/mod.rs /Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/osakit-0.3.1/src/export/value/input.rs /Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/osakit-0.3.1/src/export/value/output.rs /Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/osakit-0.3.1/src/export/macros.rs /Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/osakit-0.3.1/src/../README.md
+
+/Users/mac/Project/open_code/ai-cutout/src-tauri/target/debug/deps/libosakit-871461fb8cca92c6.rmeta: /Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/osakit-0.3.1/src/lib.rs /Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/osakit-0.3.1/src/export/mod.rs /Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/osakit-0.3.1/src/export/script.rs /Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/osakit-0.3.1/src/export/value/mod.rs /Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/osakit-0.3.1/src/export/value/input.rs /Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/osakit-0.3.1/src/export/value/output.rs /Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/osakit-0.3.1/src/export/macros.rs /Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/osakit-0.3.1/src/../README.md
+
+/Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/osakit-0.3.1/src/lib.rs:
+/Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/osakit-0.3.1/src/export/mod.rs:
+/Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/osakit-0.3.1/src/export/script.rs:
+/Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/osakit-0.3.1/src/export/value/mod.rs:
+/Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/osakit-0.3.1/src/export/value/input.rs:
+/Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/osakit-0.3.1/src/export/value/output.rs:
+/Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/osakit-0.3.1/src/export/macros.rs:
+/Users/mac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/osakit-0.3.1/src/../README.md:

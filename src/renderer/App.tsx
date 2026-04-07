@@ -25,9 +25,23 @@ function App() {
   const [startPos, setStartPos] = useState({ x: 0, y: 0 });
   const [startTranslate, setStartTranslate] = useState({ x: 0, y: 0 });
 
+  // Refs for direct DOM manipulation (avoid re-renders during drag/zoom)
+  const scaleRef = useRef(1);
+  const translateXRef = useRef(0);
+  const translateYRef = useRef(0);
+  const brushSizeRef = useRef(20);
+  const originalTransformRef = useRef<HTMLDivElement>(null);
+  const resultTransformRef = useRef<HTMLDivElement>(null);
+
   // Edit mode states
   const [editMode, setEditMode] = useState<'none' | 'erase' | 'restore'>('none');
   const [brushSize, setBrushSize] = useState(20);
+  
+  // Sync brushSize with ref for performant cursor updates
+  useEffect(() => {
+    brushSizeRef.current = brushSize;
+  }, [brushSize]);
+  
   const [isDrawing, setIsDrawing] = useState(false);
   const [maskHistory, setMaskHistory] = useState<ImageData[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
@@ -90,31 +104,58 @@ function App() {
   const handleZoom = useCallback((e: WheelEvent, panelRef: React.RefObject<HTMLDivElement>) => {
     e.preventDefault();
     const delta = e.deltaY > 0 ? 0.9 : 1.1;
-    // Min scale 1% (0.01), max scale unlimited
-    const newScale = Math.max(0.01, scale * delta);
+    const newScale = Math.max(0.01, scaleRef.current * delta);
     
     if (panelRef.current) {
       const rect = panelRef.current.getBoundingClientRect();
-      // Mouse position relative to panel
       const mouseX = e.clientX - rect.left;
       const mouseY = e.clientY - rect.top;
       
-      // Calculate the world coordinate of the mouse position before zoom
       const panelCenterX = rect.width / 2;
       const panelCenterY = rect.height / 2;
-      const worldX = (mouseX - panelCenterX - translateX) / scale;
-      const worldY = (mouseY - panelCenterY - translateY) / scale;
+      const worldX = (mouseX - panelCenterX - translateXRef.current) / scaleRef.current;
+      const worldY = (mouseY - panelCenterY - translateYRef.current) / scaleRef.current;
       
-      // After zoom, we want the same world coordinate to be at the same screen position
       const newTranslateX = mouseX - panelCenterX - worldX * newScale;
       const newTranslateY = mouseY - panelCenterY - worldY * newScale;
       
-      setTranslateX(newTranslateX);
-      setTranslateY(newTranslateY);
+      updateTransform(newScale, newTranslateX, newTranslateY);
+    } else {
+      updateTransform(newScale, translateXRef.current, translateYRef.current);
+    }
+  }, []);
+
+  // Direct DOM transform update (no re-render, batched with RAF)
+  const rafRef = useRef<number | null>(null);
+  const updateTransform = (s: number, tx: number, ty: number) => {
+    scaleRef.current = s;
+    translateXRef.current = tx;
+    translateYRef.current = ty;
+    
+    if (rafRef.current) {
+      cancelAnimationFrame(rafRef.current);
     }
     
-    setScale(newScale);
-  }, [scale, translateX, translateY]);
+    rafRef.current = requestAnimationFrame(() => {
+      const transform = `translate(calc(-50% + ${tx}px), calc(-50% + ${ty}px)) scale(${s})`;
+      if (originalTransformRef.current) {
+        originalTransformRef.current.style.transform = transform;
+      }
+      if (resultTransformRef.current) {
+        resultTransformRef.current.style.transform = transform;
+      }
+      // Update cursor sizes
+      const cursorSize = brushSizeRef.current * s;
+      if (originalCursorRef.current) {
+        originalCursorRef.current.style.width = `${cursorSize}px`;
+        originalCursorRef.current.style.height = `${cursorSize}px`;
+      }
+      if (resultCursorRef.current) {
+        resultCursorRef.current.style.width = `${cursorSize}px`;
+        resultCursorRef.current.style.height = `${cursorSize}px`;
+      }
+    });
+  };
 
   // Set specific zoom scale
   const setZoomScale = (targetScale: number) => {
@@ -122,6 +163,7 @@ function App() {
     setScale(newScale);
     setTranslateX(0);
     setTranslateY(0);
+    updateTransform(newScale, 0, 0);
   };
 
   // Fit image to panel
@@ -144,6 +186,7 @@ function App() {
           setScale(fitScale);
           setTranslateX(0);
           setTranslateY(0);
+          updateTransform(fitScale, 0, 0);
         }
       };
       img.src = originalImage;
@@ -923,13 +966,16 @@ function App() {
     if (!originalImage && !processedImage) return;
     setIsDragging(true);
     setStartPos({ x: e.clientX, y: e.clientY });
-    setStartTranslate({ x: translateX, y: translateY });
-  }, [originalImage, processedImage, translateX, translateY]);
+    setStartTranslate({ x: translateXRef.current, y: translateYRef.current });
+  }, [originalImage, processedImage]);
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
     if (!isDragging) return;
-    setTranslateX(startTranslate.x + (e.clientX - startPos.x));
-    setTranslateY(startTranslate.y + (e.clientY - startPos.y));
+    const newTx = startTranslate.x + (e.clientX - startPos.x);
+    const newTy = startTranslate.y + (e.clientY - startPos.y);
+    updateTransform(scaleRef.current, newTx, newTy);
+    setTranslateX(newTx);
+    setTranslateY(newTy);
   }, [isDragging, startPos, startTranslate]);
 
   const handleMouseUp = useCallback(() => {
@@ -1174,9 +1220,11 @@ function App() {
         const scaleY = (panelH - 40) / imgH;
         const newScale = Math.max(scaleX, scaleY);
         
-        setScale(Math.min(newScale, 1));
+        const finalScale = Math.min(newScale, 1);
+        setScale(finalScale);
         setTranslateX(0);
         setTranslateY(0);
+        updateTransform(finalScale, 0, 0);
       }
       showToast('图片已加载，准备开始AI抠图', 'success');
     };
@@ -1337,13 +1385,16 @@ function App() {
     e.stopPropagation();
     setIsOriginalDragging(true);
     setOriginalStartPos({ x: e.clientX, y: e.clientY });
-    setOriginalStartTranslate({ x: translateX, y: translateY });
+    setOriginalStartTranslate({ x: translateXRef.current, y: translateYRef.current });
   };
 
   const handleOriginalMouseMove = (e: React.MouseEvent) => {
     if (!isOriginalDragging) return;
-    setTranslateX(originalStartTranslate.x + (e.clientX - originalStartPos.x));
-    setTranslateY(originalStartTranslate.y + (e.clientY - originalStartPos.y));
+    const newTx = originalStartTranslate.x + (e.clientX - originalStartPos.x);
+    const newTy = originalStartTranslate.y + (e.clientY - originalStartPos.y);
+    updateTransform(scaleRef.current, newTx, newTy);
+    setTranslateX(newTx);
+    setTranslateY(newTy);
   };
 
   const handleOriginalMouseUp = () => {
@@ -1644,9 +1695,8 @@ function App() {
           URL.revokeObjectURL(url);
           if (result) {
             showToast('GIF 已导出', 'success');
-          } else {
-            showToast('导出失败', 'error');
           }
+          // If result is null, user cancelled - no message needed
         } else {
           showToast('GIF 合成失败', 'error');
         }
@@ -1655,9 +1705,8 @@ function App() {
         const result = await saveImage(processedImage, 'removed_bg.gif');
         if (result) {
           showToast('GIF 已导出', 'success');
-        } else {
-          showToast('导出失败', 'error');
         }
+        // If result is null, user cancelled - no message needed
       }
       return;
     }
@@ -1668,9 +1717,8 @@ function App() {
     const result = await saveImage(composedCanvas.toDataURL('image/png'), 'removed_bg_edited.png');
     if (result) {
       showToast('图片已导出', 'success');
-    } else {
-      showToast('导出失败', 'error');
     }
+    // If result is null, user cancelled - no message needed
   };
 
   const handleCopyToClipboard = async () => {
@@ -2296,9 +2344,7 @@ function App() {
             >
               <div
                 className="image-container"
-                style={{
-                  transform: `translate(calc(-50% + ${translateX}px), calc(-50% + ${translateY}px)) scale(${scale})`
-                }}
+                ref={originalTransformRef}
               >
                 {originalImage && (
                   <img
@@ -2318,8 +2364,8 @@ function App() {
                   style={{
                     left: isAdjustingBrush ? '50%' : undefined,
                     top: isAdjustingBrush ? '50%' : undefined,
-                    width: brushSize * scale,
-                    height: brushSize * scale,
+                    width: brushSize * scaleRef.current,
+                    height: brushSize * scaleRef.current,
                     borderColor: isAdjustingBrush ? 'rgba(59, 130, 246, 0.8)' : (editMode === 'erase' ? 'rgba(239, 68, 68, 0.8)' : 'rgba(34, 197, 94, 0.8)'),
                     backgroundColor: isAdjustingBrush ? 'rgba(59, 130, 246, 0.3)' : (editMode === 'erase' ? 'rgba(239, 68, 68, 0.3)' : 'rgba(34, 197, 94, 0.3)')
                   }}
@@ -2401,8 +2447,8 @@ function App() {
             >
               <div
                 className="image-container"
+                ref={resultTransformRef}
                 style={{
-                  transform: `translate(calc(-50% + ${translateX}px), calc(-50% + ${translateY}px)) scale(${scale})`,
                   backgroundColor: bgColor === 'transparent' ? 'transparent' : bgColor,
                   backgroundImage: bgImage ? `url(${bgImage})` : bgColor === 'transparent' ? 
                     'linear-gradient(45deg, #ccc 25%, transparent 25%), linear-gradient(-45deg, #ccc 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #ccc 75%), linear-gradient(-45deg, transparent 75%, #ccc 75%)' : 'none',
@@ -2447,8 +2493,8 @@ function App() {
                   style={{
                     left: isAdjustingBrush ? '50%' : undefined,
                     top: isAdjustingBrush ? '50%' : undefined,
-                    width: brushSize * scale,
-                    height: brushSize * scale,
+                    width: brushSize * scaleRef.current,
+                    height: brushSize * scaleRef.current,
                     borderColor: isAdjustingBrush ? 'rgba(59, 130, 246, 0.8)' : (editMode === 'erase' ? 'rgba(239, 68, 68, 0.8)' : 'rgba(34, 197, 94, 0.8)'),
                     backgroundColor: isAdjustingBrush ? 'rgba(59, 130, 246, 0.3)' : (editMode === 'erase' ? 'rgba(239, 68, 68, 0.3)' : 'rgba(34, 197, 94, 0.3)')
                   }}
