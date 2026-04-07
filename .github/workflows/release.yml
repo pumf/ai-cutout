@@ -8,7 +8,7 @@ env:
 
 jobs:
   build-macos-x64:
-    runs-on: macos-13
+    runs-on: macos-latest
     permissions:
       contents: write
     steps:
@@ -32,6 +32,8 @@ jobs:
         run: npm run build:renderer
 
       - name: Build Tauri
+        env:
+          MACOSX_DEPLOYMENT_TARGET: "10.13"
         run: npm run tauri build -- --target x86_64-apple-darwin
 
       - name: Upload
