@@ -34,7 +34,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["dmg", "app"],
+    "targets": ["dmg", "app", "msi", "nsis", "appimage", "deb"],
     "category": "GraphicsAndDesign",
     "copyright": "Copyright (c) 2025",
     "macOS": {
