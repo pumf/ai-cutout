@@ -1,106 +1,150 @@
-name: Release
+name: Build and Release
 
 on:
-  push:
-    tags:
-      - 'v*'
   workflow_dispatch:
 
-jobs:
-  release:
-    permissions:
-      contents: write
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # Mac M series (ARM64)
-          - platform: 'macos-latest'
-            args: '--target aarch64-apple-darwin'
-            target: 'aarch64-apple-darwin'
-          
-          # Mac Intel (x86_64)
-          - platform: 'macos-13'
-            args: '--target x86_64-apple-darwin'
-            target: 'x86_64-apple-darwin'
-          
-          # Linux x86_64
-          - platform: 'ubuntu-22.04'
-            args: '--target x86_64-unknown-linux-gnu'
-            target: 'x86_64-unknown-linux-gnu'
-          
-          # Windows x86_64
-          - platform: 'windows-latest'
-            args: '--target x86_64-pc-windows-msvc'
-            target: 'x86_64-pc-windows-msvc'
+env:
+  CARGO_TERM_COLOR: always
 
-    runs-on: ${{ matrix.platform }}
+jobs:
+  build-macos-arm64:
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      
+      - uses: actions/setup-node@v4
         with:
           node-version: 20
-
+          
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          
+      - name: Install dependencies
+        run: npm install
+        
+      - name: Build
+        run: |
+          npm run build:renderer
+          cd src-tauri
+          cargo build --release --target aarch64-apple-darwin
+          
+      - name: Package
+        run: |
+          cd src-tauri
+          cargo tauri bundle --target aarch64-apple-darwin
+          
+      - name: Upload
+        uses: softprops/action-gh-release@v1
         with:
-          targets: ${{ matrix.target }}
+          files: src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
+          tag_name: v1.0.2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Install dependencies (Ubuntu only)
-        if: matrix.platform == 'ubuntu-22.04'
+  build-macos-x64:
+    runs-on: macos-13
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          
+      - name: Install Rust
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          
+      - name: Install dependencies
+        run: npm install
+        
+      - name: Build
+        run: |
+          npm run build:renderer
+          cd src-tauri
+          cargo build --release --target x86_64-apple-darwin
+          
+      - name: Package
+        run: |
+          cd src-tauri
+          cargo tauri bundle --target x86_64-apple-darwin
+          
+      - name: Upload
+        uses: softprops/action-gh-release@v1
+        with:
+          files: src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg
+          tag_name: v1.0.2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-linux:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          
+      - name: Install system dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev libappindicator3-dev librsvg2-dev patchelf
-
-      - name: Install frontend dependencies
+          
+      - name: Install Rust
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          
+      - name: Install dependencies
         run: npm install
-
-      - name: Build Tauri
-        run: npm run tauri build -- ${{ matrix.args }}
-
-      - name: Upload to Release (macOS)
-        if: startsWith(matrix.platform, 'macos')
+        
+      - name: Build
+        run: |
+          npm run build:renderer
+          cd src-tauri
+          cargo build --release
+          cargo tauri bundle
+          
+      - name: Upload
         uses: softprops/action-gh-release@v1
         with:
-          files: src-tauri/target/*/release/bundle/dmg/*.dmg
-          tag_name: ${{ github.ref_name }}
-          name: 小飞AI抠图 ${{ github.ref_name }}
-          body: |
-            ## 小飞AI抠图 ${{ github.ref_name }}
-
-            ### 新功能
-            - 完全自定义标题栏，支持拖拽和双击最大化
-            - 窗口圆角设计（10px）
-            - 优化帮助说明页面
-
-            ### 优化
-            - 复制功能增强
-            - 导出提示优化
-            - 编辑模式拖动
-            - 光标同步缩放
-            - 性能优化
-
-            ### 开源地址
-            https://github.com/pumf/ai-cutout
+          files: src-tauri/target/release/bundle/appimage/*.AppImage
+          tag_name: v1.0.2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload to Release (Linux)
-        if: matrix.platform == 'ubuntu-22.04'
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          
+      - name: Install Rust
+        run: |
+          Invoke-WebRequest -Uri https://win.rustup.rs/x86_64 -OutFile rustup-init.exe
+          .\rustup-init.exe -y
+          echo "$env:USERPROFILE\.cargo\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+          
+      - name: Install dependencies
+        run: npm install
+        
+      - name: Build
+        run: |
+          npm run build:renderer
+          cd src-tauri
+          cargo build --release
+          cargo tauri bundle
+          
+      - name: Upload
         uses: softprops/action-gh-release@v1
         with:
-          files: src-tauri/target/*/release/bundle/appimage/*.AppImage
-          tag_name: ${{ github.ref_name }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload to Release (Windows)
-        if: matrix.platform == 'windows-latest'
-        uses: softprops/action-gh-release@v1
-        with:
-          files: src-tauri/target/*/release/bundle/msi/*.msi
-          tag_name: ${{ github.ref_name }}
+          files: src-tauri/target/release/bundle/msi/*.msi
+          tag_name: v1.0.2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
