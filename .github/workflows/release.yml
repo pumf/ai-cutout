@@ -7,8 +7,40 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # macOS x64 (Intel) is disabled - ONNX Runtime doesn't provide prebuilt binaries for x86_64-apple-darwin
-  # Apple is phasing out Intel Macs, ARM64 is the primary target
+  build-macos-x64:
+    runs-on: macos-13
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-apple-darwin
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build frontend
+        run: npm run build:renderer
+
+      - name: Build Tauri
+        run: npm run tauri build -- --target x86_64-apple-darwin
+
+      - name: Upload
+        uses: softprops/action-gh-release@v1
+        with:
+          files: src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg
+          tag_name: v1.0.2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   build-linux:
     runs-on: ubuntu-24.04
