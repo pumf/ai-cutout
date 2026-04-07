@@ -14,29 +14,25 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Mac M series (ARM64) - Native on macos-latest
+          # Mac M series (ARM64)
           - platform: 'macos-latest'
             args: '--target aarch64-apple-darwin'
             target: 'aarch64-apple-darwin'
-            arch: 'aarch64'
           
-          # Mac Intel (x86_64) - Build on macos-13 (Intel runner)
+          # Mac Intel (x86_64)
           - platform: 'macos-13'
             args: '--target x86_64-apple-darwin'
             target: 'x86_64-apple-darwin'
-            arch: 'x86_64'
           
           # Linux x86_64
           - platform: 'ubuntu-22.04'
             args: '--target x86_64-unknown-linux-gnu'
             target: 'x86_64-unknown-linux-gnu'
-            arch: 'x86_64'
           
           # Windows x86_64
           - platform: 'windows-latest'
             args: '--target x86_64-pc-windows-msvc'
             target: 'x86_64-pc-windows-msvc'
-            arch: 'x86_64'
 
     runs-on: ${{ matrix.platform }}
     steps:
@@ -47,12 +43,12 @@ jobs:
         with:
           node-version: 20
 
-      - name: Install Rust stable
+      - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
 
-      - name: Install dependencies (ubuntu only)
+      - name: Install dependencies (Ubuntu only)
         if: matrix.platform == 'ubuntu-22.04'
         run: |
           sudo apt-get update
@@ -61,53 +57,50 @@ jobs:
       - name: Install frontend dependencies
         run: npm install
 
-      - name: Build Tauri app
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build Tauri
+        run: npm run tauri build -- ${{ matrix.args }}
+
+      - name: Upload to Release (macOS)
+        if: startsWith(matrix.platform, 'macos')
+        uses: softprops/action-gh-release@v1
         with:
-          tagName: v__VERSION__
-          releaseName: '小飞AI抠图 v__VERSION__'
-          releaseBody: |
-            ## 更新内容
-            
+          files: src-tauri/target/*/release/bundle/dmg/*.dmg
+          tag_name: ${{ github.ref_name }}
+          name: 小飞AI抠图 ${{ github.ref_name }}
+          body: |
+            ## 小飞AI抠图 ${{ github.ref_name }}
+
             ### 新功能
             - 完全自定义标题栏，支持拖拽和双击最大化
             - 窗口圆角设计（10px）
-            - 优化帮助说明页面，改为 GitHub 开源地址
-            
+            - 优化帮助说明页面
+
             ### 优化
-            - 复制功能现在包含擦除/修补效果和背景合成
-            - 优化导出取消提示（不再显示"导出失败"）
-            - 擦除和修补模式下原图区域支持拖动
-            - 缩放时虚拟圆形光标同步缩放
-            - 修复拖动和缩放时的闪烁卡顿问题
-            
-            ### 平台支持
-            - ✅ macOS (Apple Silicon M1/M2/M3)
-            - ✅ macOS (Intel)
-            - ✅ Linux (x86_64)
-            - ✅ Windows (x86_64)
-            
-            ## 安装说明
-            
-            ### macOS
-            下载 `.dmg` 文件，双击挂载后将应用拖到 Applications 文件夹。
-            
-            **注意**: 首次打开可能需要在 系统设置 > 隐私与安全性 中允许。
-            
-            ### Linux
-            下载 `.AppImage` 文件，赋予执行权限后运行：
-            ```bash
-            chmod +x 小飞AI抠图_*.AppImage
-            ./小飞AI抠图_*.AppImage
-            ```
-            
-            ### Windows
-            下载 `.msi` 安装包，双击运行安装。
-            
-            ## 开源地址
+            - 复制功能增强
+            - 导出提示优化
+            - 编辑模式拖动
+            - 光标同步缩放
+            - 性能优化
+
+            ### 开源地址
             https://github.com/pumf/ai-cutout
-          releaseDraft: false
-          prerelease: false
-          args: ${{ matrix.args }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload to Release (Linux)
+        if: matrix.platform == 'ubuntu-22.04'
+        uses: softprops/action-gh-release@v1
+        with:
+          files: src-tauri/target/*/release/bundle/appimage/*.AppImage
+          tag_name: ${{ github.ref_name }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload to Release (Windows)
+        if: matrix.platform == 'windows-latest'
+        uses: softprops/action-gh-release@v1
+        with:
+          files: src-tauri/target/*/release/bundle/msi/*.msi
+          tag_name: ${{ github.ref_name }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
