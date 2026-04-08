@@ -1,14 +1,16 @@
 use std::path::Path;
 
 use image::{imageops::FilterType, ImageBuffer, ImageEncoder};
-use ndarray::Array;
 use tract_onnx::prelude::*;
 
 fn to_string_error<E: std::fmt::Display>(e: E) -> String {
     e.to_string()
 }
 
-pub fn load_model<P: AsRef<Path>>(model_path: P) -> Result<SimplePlan<TypedFact, Box<dyn TypedOp>, Graph<TypedFact, Box<dyn TypedOp>>>, String> {
+// Type alias for the model type
+pub type Model = SimplePlan<TypedFact, Box<dyn TypedOp>, Graph<TypedFact, Box<dyn TypedOp>>>;
+
+pub fn load_model<P: AsRef<Path>>(model_path: P) -> Result<Model, String> {
     // Load ONNX model using tract
     let model = tract_onnx::onnx()
         .model_for_path(model_path)
@@ -22,7 +24,7 @@ pub fn load_model<P: AsRef<Path>>(model_path: P) -> Result<SimplePlan<TypedFact,
 }
 
 pub async fn process_image_with_model(
-    model: &mut SimplePlan<TypedFact, Box<dyn TypedOp>, Graph<TypedFact, Box<dyn TypedOp>>>,
+    model: &mut Model,
     image_data: &[u8],
 ) -> Result<Vec<u8>, String> {
     // Load image
@@ -37,6 +39,7 @@ pub async fn process_image_with_model(
     let (width, height) = (rgb_img.width(), rgb_img.height());
 
     // Create input tensor [1, 3, 1024, 1024]
+    // Tract uses NCHW format
     let mut input_data: Vec<f32> = Vec::with_capacity(3 * 1024 * 1024);
 
     // BRIA normalization: (x - 0.5) / 1.0
@@ -51,11 +54,9 @@ pub async fn process_image_with_model(
         }
     }
 
-    let input_array = Array::from_shape_vec((1, 3, 1024, 1024), input_data)
-        .map_err(|e| e.to_string())?;
-    
-    // Convert to tract tensor
-    let input_tensor: Tensor = input_array.into();
+    // Create tract tensor with correct shape [1, 3, 1024, 1024]
+    let input_tensor = Tensor::from_shape(&[1, 3, 1024, 1024], &input_data)
+        .map_err(to_string_error)?;
     
     // Run inference
     let outputs = model.run(tvec!(input_tensor.into()))
