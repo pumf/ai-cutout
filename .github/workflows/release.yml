@@ -7,7 +7,44 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build-macos-x64:
+  # Apple Silicon Mac (ARM64) - 使用 download-binaries
+  build-macos-arm64:
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build frontend
+        run: npm run build:renderer
+
+      - name: Build Tauri
+        run: npm run tauri build -- --target aarch64-apple-darwin
+
+      - name: Upload
+        uses: softprops/action-gh-release@v1
+        with:
+          files: src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
+          tag_name: v1.0.2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Intel Mac (x86_64) - 使用 load-dynamic + 手动提供 dylib
+  build-macos-intel:
     runs-on: macos-latest
     permissions:
       contents: write
@@ -25,6 +62,12 @@ jobs:
         with:
           targets: x86_64-apple-darwin
 
+      - name: Download ONNX Runtime for Intel Mac
+        run: |
+          curl -L -o onnxruntime.tar.gz https://github.com/microsoft/onnxruntime/releases/download/v1.17.0/onnxruntime-osx-x86_64-1.17.0.tgz
+          tar -xzf onnxruntime.tar.gz
+          ls -la onnxruntime-osx-x86_64-1.17.0/lib/
+
       - name: Install dependencies
         run: npm install
 
@@ -33,13 +76,33 @@ jobs:
 
       - name: Build Tauri
         env:
-          MACOSX_DEPLOYMENT_TARGET: "10.13"
+          ORT_LIB_LOCATION: ${{ github.workspace }}/onnxruntime-osx-x86_64-1.17.0/lib
         run: npm run tauri build -- --target x86_64-apple-darwin
+
+      - name: Package dylib with app
+        run: |
+          APP="src-tauri/target/x86_64-apple-darwin/release/bundle/macos/小飞AI抠图.app"
+          mkdir -p "$APP/Contents/Frameworks"
+          cp onnxruntime-osx-x86_64-1.17.0/lib/*.dylib "$APP/Contents/Frameworks/"
+          
+          # Update dylib paths in the binary
+          BINARY="$APP/Contents/MacOS/ai-cutout"
+          install_name_tool -change @rpath/libonnxruntime.1.17.0.dylib @executable_path/../Frameworks/libonnxruntime.1.17.0.dylib "$BINARY" || true
+          
+          # Verify the change
+          otool -L "$BINARY" | grep onnxruntime || true
+
+      - name: Create DMG
+        run: |
+          mkdir -p /tmp/dmg-intel
+          cp -r "src-tauri/target/x86_64-apple-darwin/release/bundle/macos/小飞AI抠图.app" /tmp/dmg-intel/
+          ln -s /Applications /tmp/dmg-intel/Applications
+          hdiutil create -volname "小飞AI抠图 Intel" -srcfolder /tmp/dmg-intel -ov -format UDZO 小飞AI抠图_1.0.2_x64.dmg
 
       - name: Upload
         uses: softprops/action-gh-release@v1
         with:
-          files: src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg
+          files: 小飞AI抠图_1.0.2_x64.dmg
           tag_name: v1.0.2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -52,28 +115,28 @@ jobs:
       - uses: actions/checkout@v4
         with:
           lfs: true
-      
+
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-          
+
       - name: Install system dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libjavascriptcoregtk-4.1-dev libsoup-3.0-dev
-          
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
-          
+
       - name: Install dependencies
         run: npm install
-        
+
       - name: Build frontend
         run: npm run build:renderer
-        
+
       - name: Build Tauri
         run: npm run tauri build
-        
+
       - name: Upload
         uses: softprops/action-gh-release@v1
         with:
@@ -92,23 +155,23 @@ jobs:
       - uses: actions/checkout@v4
         with:
           lfs: true
-      
+
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-          
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
-          
+
       - name: Install dependencies
         run: npm install
-        
+
       - name: Build frontend
         run: npm run build:renderer
-        
+
       - name: Build Tauri
         run: npm run tauri build
-        
+
       - name: Upload
         uses: softprops/action-gh-release@v1
         with:

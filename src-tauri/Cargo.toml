@@ -24,12 +24,23 @@ base64 = "0.22"
 tokio = { version = "1", features = ["full"] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"] }
 ndarray = { version = "0.17", features = ["std", "rayon"] }
-ort = { version = "2.0.0-rc.9", default-features = false, features = ["ndarray", "half", "download-binaries", "tls-rustls"] }
 arboard = "3"
 
 [features]
-default = ["ort/download-binaries"]
+default = []
 custom-protocol = ["tauri/custom-protocol"]
+
+# Apple Silicon (ARM64) - 使用 download-binaries，自动下载预编译的 ONNX Runtime
+[target.'cfg(all(target_os = "macos", target_arch = "aarch64"))'.dependencies]
+ort = { version = "2.0.0-rc.9", default-features = false, features = ["ndarray", "half", "download-binaries", "tls-rustls"] }
+
+# Intel Mac (x86_64) - 使用 load-dynamic，需要手动提供 dylib
+[target.'cfg(all(target_os = "macos", target_arch = "x86_64"))'.dependencies]
+ort = { version = "2.0.0-rc.9", default-features = false, features = ["ndarray", "half", "load-dynamic", "tls-rustls"] }
+
+# Windows & Linux - 使用 download-binaries
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+ort = { version = "2.0.0-rc.9", default-features = false, features = ["ndarray", "half", "download-binaries", "tls-rustls"] }
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-updater = "2"
