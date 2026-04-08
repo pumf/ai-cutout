@@ -1,14 +1,16 @@
 use std::path::Path;
 
 use image::{imageops::FilterType, ImageBuffer, ImageEncoder};
-use tract_onnx::prelude::*;
+use ndarray::Array;
+use ort::session::{Session, builder::GraphOptimizationLevel};
+use ort::value::Value;
 
 fn to_string_error<E: std::fmt::Display>(e: E) -> String {
     e.to_string()
 }
 
 // Type alias for the model type
-pub type Model = SimplePlan<TypedFact, Box<dyn TypedOp>, Graph<TypedFact, Box<dyn TypedOp>>>;
+pub type Model = Session;
 
 pub fn load_model<P: AsRef<Path>>(model_path: P) -> Result<Model, String> {
     let path = model_path.as_ref();
@@ -27,38 +29,26 @@ pub fn load_model<P: AsRef<Path>>(model_path: P) -> Result<Model, String> {
         eprintln!("[Model] Model file size: {:.2} MB", size_mb);
     }
     
-    // Load ONNX model using tract
-    eprintln!("[Model] Parsing ONNX model...");
-    let model = tract_onnx::onnx()
-        .model_for_path(path)
+    // Load ONNX model using ort
+    eprintln!("[Model] Loading ONNX model with ort...");
+    let session = Session::builder()
+        .map_err(to_string_error)?
+        .with_optimization_level(GraphOptimizationLevel::Level3)
+        .map_err(to_string_error)?
+        .with_intra_threads(4)
+        .map_err(to_string_error)?
+        .commit_from_file(path)
         .map_err(|e| {
-            eprintln!("[Model] Failed to parse model: {}", e);
-            format!("Failed to parse ONNX model: {}", e)
-        })?;
-    
-    eprintln!("[Model] Optimizing model...");
-    let model = model
-        .into_optimized()
-        .map_err(|e| {
-            let err_msg = format!("Failed to optimize model: {}. This model may contain unsupported operations (e.g., Resize). Please use a compatible model or contact support.", e);
-            eprintln!("[Model] Error: {}", err_msg);
-            err_msg
-        })?;
-    
-    eprintln!("[Model] Converting to runnable...");
-    let model = model
-        .into_runnable()
-        .map_err(|e| {
-            eprintln!("[Model] Failed to convert to runnable: {}", e);
-            format!("Failed to convert model to runnable: {}", e)
+            eprintln!("[Model] Failed to load model: {}", e);
+            format!("Failed to load ONNX model: {}", e)
         })?;
     
     eprintln!("[Model] Model loaded successfully!");
-    Ok(model)
+    Ok(session)
 }
 
 pub async fn process_image_with_model(
-    model: &mut Model,
+    session: &mut Session,
     image_data: &[u8],
 ) -> Result<Vec<u8>, String> {
     // Load image
@@ -73,7 +63,6 @@ pub async fn process_image_with_model(
     let (width, height) = (rgb_img.width(), rgb_img.height());
 
     // Create input tensor [1, 3, 1024, 1024]
-    // Tract uses NCHW format
     let mut input_data: Vec<f32> = Vec::with_capacity(3 * 1024 * 1024);
 
     // BRIA normalization: (x - 0.5) / 1.0
@@ -88,20 +77,19 @@ pub async fn process_image_with_model(
         }
     }
 
-    // Create tract tensor with correct shape [1, 3, 1024, 1024]
-    let input_tensor = Tensor::from_shape(&[1, 3, 1024, 1024], &input_data)
+    let input_array = Array::from_shape_vec((1, 3, 1024, 1024), input_data)
+        .map_err(|e| e.to_string())?;
+    let input_value = Value::from_array(input_array)
         .map_err(to_string_error)?;
-    
+
     // Run inference
-    let outputs = model.run(tvec!(input_tensor.into()))
+    let outputs = session.run(ort::inputs![input_value])
         .map_err(to_string_error)?;
-    
-    // Extract output tensor
-    let output_tensor = outputs[0].to_array_view::<f32>()
+    let output_tensor = outputs[0].try_extract_tensor::<f32>()
         .map_err(to_string_error)?;
     
     // Extract the data from the tensor
-    let mask_data: Vec<f32> = output_tensor.iter().copied().collect();
+    let mask_data: Vec<f32> = output_tensor.1.iter().copied().collect();
 
     // Normalize mask to 0-255
     let min_val = mask_data.iter().cloned().fold(f32::INFINITY, f32::min);
