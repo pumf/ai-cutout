@@ -31,13 +31,18 @@ pub fn load_model<P: AsRef<Path>>(model_path: P) -> Result<Model, String> {
     
     // Load ONNX model using ort
     eprintln!("[Model] Loading ONNX model with ort...");
+    
+    // Read model file into memory
+    let model_bytes = std::fs::read(path)
+        .map_err(|e| format!("Failed to read model file: {}", e))?;
+    
     let session = Session::builder()
         .map_err(to_string_error)?
         .with_optimization_level(GraphOptimizationLevel::Level3)
         .map_err(to_string_error)?
         .with_intra_threads(4)
         .map_err(to_string_error)?
-        .commit_from_file(path)
+        .commit_from_memory(&model_bytes)
         .map_err(|e| {
             eprintln!("[Model] Failed to load model: {}", e);
             format!("Failed to load ONNX model: {}", e)
