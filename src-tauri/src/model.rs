@@ -11,15 +11,49 @@ fn to_string_error<E: std::fmt::Display>(e: E) -> String {
 pub type Model = SimplePlan<TypedFact, Box<dyn TypedOp>, Graph<TypedFact, Box<dyn TypedOp>>>;
 
 pub fn load_model<P: AsRef<Path>>(model_path: P) -> Result<Model, String> {
+    let path = model_path.as_ref();
+    eprintln!("[Model] Attempting to load model from: {:?}", path);
+    
+    // Check if file exists
+    if !path.exists() {
+        let err_msg = format!("Model file not found: {:?}", path);
+        eprintln!("[Model] Error: {}", err_msg);
+        return Err(err_msg);
+    }
+    
+    // Check file size
+    if let Ok(metadata) = std::fs::metadata(path) {
+        let size_mb = metadata.len() as f64 / (1024.0 * 1024.0);
+        eprintln!("[Model] Model file size: {:.2} MB", size_mb);
+    }
+    
     // Load ONNX model using tract
+    eprintln!("[Model] Parsing ONNX model...");
     let model = tract_onnx::onnx()
-        .model_for_path(model_path)
-        .map_err(to_string_error)?
+        .model_for_path(path)
+        .map_err(|e| {
+            eprintln!("[Model] Failed to parse model: {}", e);
+            format!("Failed to parse ONNX model: {}", e)
+        })?;
+    
+    eprintln!("[Model] Optimizing model...");
+    let model = model
         .into_optimized()
-        .map_err(to_string_error)?
+        .map_err(|e| {
+            let err_msg = format!("Failed to optimize model: {}. This model may contain unsupported operations (e.g., Resize). Please use a compatible model or contact support.", e);
+            eprintln!("[Model] Error: {}", err_msg);
+            err_msg
+        })?;
+    
+    eprintln!("[Model] Converting to runnable...");
+    let model = model
         .into_runnable()
-        .map_err(to_string_error)?;
-
+        .map_err(|e| {
+            eprintln!("[Model] Failed to convert to runnable: {}", e);
+            format!("Failed to convert model to runnable: {}", e)
+        })?;
+    
+    eprintln!("[Model] Model loaded successfully!");
     Ok(model)
 }
 

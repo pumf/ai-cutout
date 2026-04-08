@@ -131,10 +131,17 @@ async fn load_fixed_model(
     state: State<'_, AppState>,
     model_id: String,
 ) -> Result<serde_json::Value, String> {
+    eprintln!("[load_fixed_model] Loading model: {}", model_id);
+    
     let app_dir = app_handle
         .path()
         .resource_dir()
-        .map_err(|e| format!("Failed to get resource dir: {}", e))?;
+        .map_err(|e| {
+            eprintln!("[load_fixed_model] Failed to get resource dir: {}", e);
+            format!("Failed to get resource dir: {}", e)
+        })?;
+    
+    eprintln!("[load_fixed_model] Resource dir: {:?}", app_dir);
 
     let (model_path, model_name, model_display_name) = match model_id.as_str() {
         "1.4" => (
@@ -150,13 +157,39 @@ async fn load_fixed_model(
         _ => return Err(format!("Unknown model: {}", model_id)),
     };
 
+    eprintln!("[load_fixed_model] Model path: {:?}", model_path);
+    eprintln!("[load_fixed_model] Path exists: {}", model_path.exists());
+    
+    // List parent directory contents for debugging
+    if let Some(parent) = model_path.parent() {
+        eprintln!("[load_fixed_model] Parent dir: {:?}", parent);
+        if parent.exists() {
+            if let Ok(entries) = std::fs::read_dir(parent) {
+                eprintln!("[load_fixed_model] Parent dir contents:");
+                for entry in entries {
+                    if let Ok(e) = entry {
+                        eprintln!("  - {:?}", e.path());
+                    }
+                }
+            }
+        } else {
+            eprintln!("[load_fixed_model] Parent dir does not exist!");
+        }
+    }
+
     if !model_path.exists() {
-        return Err(format!("Model file not found: {:?}", model_path));
+        let err_msg = format!("Model file not found: {:?}", model_path);
+        eprintln!("[load_fixed_model] Error: {}", err_msg);
+        return Err(err_msg);
     }
 
     // Load the ONNX model
+    eprintln!("[load_fixed_model] Loading ONNX model...");
     let model = model::load_model(&model_path)
-        .map_err(|e| format!("Failed to load model: {}", e))?;
+        .map_err(|e| {
+            eprintln!("[load_fixed_model] Failed to load model: {}", e);
+            format!("Failed to load model: {}", e)
+        })?;
 
     // Update state
     {
@@ -409,12 +442,33 @@ fn main() {
                 
                 // Auto-load the built-in model
                 let state = handle.state::<AppState>();
-                if let Ok(app_dir) = handle.path().resource_dir() {
-                    // Try to auto-load RMBG-1.4 first
-                    let model_path = app_dir.join("model_files/1.4/model.onnx");
-                    
-                    if model_path.exists() {
-                        match model::load_model(&model_path) {
+                
+                // Try different paths to find the model
+                let mut possible_paths: Vec<std::path::PathBuf> = vec![];
+                
+                // Path 1: Resource dir
+                if let Ok(resource_dir) = handle.path().resource_dir() {
+                    possible_paths.push(resource_dir.join("model_files/1.4/model.onnx"));
+                }
+                
+                // Path 2: App data dir
+                if let Ok(app_data_dir) = handle.path().app_data_dir() {
+                    possible_paths.push(app_data_dir.join("model_files/1.4/model.onnx"));
+                }
+                
+                // Path 3: Executable relative path (for macOS .app bundle)
+                if let Ok(exe_path) = std::env::current_exe() {
+                    if let Some(exe_dir) = exe_path.parent() {
+                        possible_paths.push(exe_dir.join("../Resources/model_files/1.4/model.onnx"));
+                    }
+                }
+                
+                let mut model_loaded = false;
+                for path in &possible_paths {
+                    eprintln!("[Auto-load] Checking path: {:?}", path);
+                    if path.exists() {
+                        eprintln!("[Auto-load] Found model at: {:?}", path);
+                        match model::load_model(&path) {
                             Ok(model) => {
                                 let mut m = state.model.lock().await;
                                 *m = Some(model);
@@ -423,20 +477,27 @@ fn main() {
                                 *model_info = ModelInfo {
                                     name: Some("RMBG-1.4".to_string()),
                                     display_name: Some("RMBG-1.4 (速度快)".to_string()),
-                                    path: Some(model_path.to_string_lossy().to_string()),
+                                    path: Some(path.to_string_lossy().to_string()),
                                     loaded: true,
                                 };
                                 
                                 // Emit event to notify frontend that model is loaded
                                 let _ = handle.emit("model-auto-loaded", ());
+                                eprintln!("[Auto-load] Model loaded successfully!");
+                                model_loaded = true;
+                                break;
                             }
                             Err(e) => {
-                                eprintln!("Failed to auto-load model: {}", e);
+                                eprintln!("[Auto-load] Failed to load model from {:?}: {}", path, e);
                             }
                         }
                     } else {
-                        eprintln!("Model file not found at: {:?}", model_path);
+                        eprintln!("[Auto-load] Model not found at: {:?}", path);
                     }
+                }
+                
+                if !model_loaded {
+                    eprintln!("[Auto-load] Could not load model from any path");
                 }
             });
             
