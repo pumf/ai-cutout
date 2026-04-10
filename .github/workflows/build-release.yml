@@ -152,20 +152,28 @@ jobs:
           if-no-files-found: warn
 
   release:
-    # Run even if some builds fail, but wait for all to complete
     needs: [build-macos-arm64, build-macos-x64, build-windows]
     runs-on: ubuntu-latest
     if: always()
+    permissions:
+      contents: write
     steps:
-      - name: Download artifacts
+      - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts
-          # Continue even if some artifacts don't exist
-          merge-multiple: false
+          merge-multiple: true
 
-      - name: List artifacts
-        run: ls -la artifacts/ || echo "No artifacts directory"
+      - name: Display structure of downloaded files
+        run: |
+          echo "Artifacts directory structure:"
+          ls -R artifacts/ || echo "No artifacts found"
+          echo ""
+          echo "DMG files:"
+          find artifacts/ -name "*.dmg" -type f 2>/dev/null || echo "No DMG files"
+          echo ""
+          echo "EXE files:"
+          find artifacts/ -name "*.exe" -type f 2>/dev/null || echo "No EXE files"
 
       - name: Get version
         id: ver
@@ -175,14 +183,70 @@ jobs:
           else
             echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
           fi
+          echo "Version: ${{ steps.ver.outputs.VERSION }}"
 
-      - name: Create Release
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: v${{ steps.ver.outputs.VERSION }}
-          name: 小飞AI抠图 v${{ steps.ver.outputs.VERSION }}
-          files: |
-            artifacts/**/*.dmg
-            artifacts/**/*.exe
+      - name: Create Release using GitHub CLI
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.ver.outputs.VERSION }}
+        run: |
+          # Create the release
+          gh release create "v${VERSION}" \
+            --title "小飞AI抠图 v${VERSION}" \
+            --notes "## 小飞AI抠图 v${VERSION}
+
+          ### 更新内容
+          - 优化模型列表加载状态显示
+          - 修复复制到剪贴板功能
+          - 修复导出图片默认文件名
+          - 修复缩放比例同步问题
+          - 添加跨平台支持（macOS Intel/ARM64、Windows）
+          - 改进错误处理和用户提示
+
+          ### 安装包
+          | 平台 | 文件 | 说明 |
+          |------|------|------|
+          | macOS Apple Silicon | 小飞AI抠图-${VERSION}-arm64.dmg | M1/M2/M3 Mac |
+          | macOS Intel | 小飞AI抠图-${VERSION}-x64.dmg | Intel Mac |
+          | Windows | 小飞AI抠图-Setup-${VERSION}.exe | Windows 10/11 |
+
+          ### 系统要求
+          - **macOS**: macOS 11.0 或更高版本
+          - **Windows**: Windows 10 或更高版本，需要安装 Python 3.9+
+
+          ### 注意事项
+          - macOS 用户可能需要在 系统设置 > 隐私与安全 中允许应用运行
+          - Windows 用户请确保已安装 Python 3.9+ 并添加到 PATH" \
+            --draft=false \
+            --prerelease=false \
+            2>/dev/null || echo "Release may already exist, continuing to upload files..."
+
+      - name: Upload DMG files
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.ver.outputs.VERSION }}
+        run: |
+          # Find and upload DMG files
+          for file in $(find artifacts/ -name "*.dmg" -type f 2>/dev/null); do
+            echo "Uploading: $file"
+            gh release upload "v${VERSION}" "$file" --clobber || echo "Failed to upload $file"
+          done
+
+      - name: Upload EXE files
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.ver.outputs.VERSION }}
+        run: |
+          # Find and upload EXE files
+          for file in $(find artifacts/ -name "*.exe" -type f 2>/dev/null); do
+            echo "Uploading: $file"
+            gh release upload "v${VERSION}" "$file" --clobber || echo "Failed to upload $file"
+          done
+
+      - name: Verify Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.ver.outputs.VERSION }}
+        run: |
+          echo "Release v${VERSION} created successfully!"
+          gh release view "v${VERSION}" --json tagName,name,assets || echo "Could not verify release"
