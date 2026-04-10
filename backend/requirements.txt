@@ -1,8 +1,10 @@
 torch
 torchvision
+numpy
 pillow
 kornia
 transformers
+onnxruntime
 fastapi
 uvicorn
 python-multipart
