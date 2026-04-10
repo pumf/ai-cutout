@@ -11,6 +11,11 @@ on:
         required: true
         default: '1.0.3'
 
+# Ensure jobs run independently
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   build-macos-arm64:
     runs-on: macos-14
@@ -54,9 +59,12 @@ jobs:
         with:
           name: macos-arm64
           path: release/*.dmg
+          if-no-files-found: warn
 
   build-macos-x64:
     runs-on: macos-13
+    # Ensure this job always runs, not cancelled by other jobs
+    if: always()
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -97,6 +105,7 @@ jobs:
         with:
           name: macos-x64
           path: release/*.dmg
+          if-no-files-found: warn
 
   build-windows:
     runs-on: windows-latest
@@ -140,15 +149,23 @@ jobs:
         with:
           name: windows-x64
           path: release/*.exe
+          if-no-files-found: warn
 
   release:
+    # Run even if some builds fail, but wait for all to complete
     needs: [build-macos-arm64, build-macos-x64, build-windows]
     runs-on: ubuntu-latest
+    if: always()
     steps:
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts
+          # Continue even if some artifacts don't exist
+          merge-multiple: false
+
+      - name: List artifacts
+        run: ls -la artifacts/ || echo "No artifacts directory"
 
       - name: Get version
         id: ver
