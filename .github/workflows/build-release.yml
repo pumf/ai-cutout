@@ -29,36 +29,42 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install dependencies
+      - name: Install Node dependencies
         run: npm ci
 
       - name: Build frontend and electron
         run: npm run build
 
-      - name: Create ARM64 venv
+      - name: Create ARM64 venv and install dependencies
         run: |
-          python -m venv venv-arm64
+          python3 -m venv venv-arm64
           source venv-arm64/bin/activate
-          pip install --upgrade pip
-          pip install -r backend/requirements.txt
+          pip install --upgrade pip setuptools wheel
+          # Install torch separately to avoid timeouts
+          pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+          # Install remaining requirements (excluding torch/torchvision)
+          pip install numpy pillow fastapi uvicorn python-multipart python-json-logger
+          # Install onnxruntime for Apple Silicon
+          pip install onnxruntime-silicon
           deactivate
+        timeout-minutes: 15
 
       - name: Update package.json for ARM64
         run: |
-          node -e "
-          const fs = require('fs');
-          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-          pkg.build.mac.target = [{ target: 'dmg', arch: ['arm64'] }];
+          node -e '
+          const fs = require("fs");
+          const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
+          pkg.build.mac.target = [{ target: "dmg", arch: ["arm64"] }];
           pkg.build.extraResources = [
-            { from: 'backend', to: 'backend' },
-            { from: 'venv-arm64', to: 'venv-arm64' },
-            { from: 'model_files', to: 'model_files' },
-            { from: 'resource/qrcode.jpg', to: 'resource/qrcode.jpg' },
-            { from: 'resource/grcode.jpg', to: 'resource/grcode.jpg' },
-            { from: 'resource/logo.png', to: 'resource/logo.png' }
+            { from: "backend", to: "backend" },
+            { from: "venv-arm64", to: "venv-arm64" },
+            { from: "model_files", to: "model_files" },
+            { from: "resource/qrcode.jpg", to: "resource/qrcode.jpg" },
+            { from: "resource/grcode.jpg", to: "resource/grcode.jpg" },
+            { from: "resource/logo.png", to: "resource/logo.png" }
           ];
-          fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2));
-          "
+          fs.writeFileSync("package.json", JSON.stringify(pkg, null, 2));
+          '
 
       - name: Build macOS ARM64
         run: npx electron-builder --mac --arm64
@@ -88,36 +94,40 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install dependencies
+      - name: Install Node dependencies
         run: npm ci
 
       - name: Build frontend and electron
         run: npm run build
 
-      - name: Create x64 venv
+      - name: Create x64 venv and install dependencies
         run: |
-          python -m venv venv-x64
+          python3 -m venv venv-x64
           source venv-x64/bin/activate
-          pip install --upgrade pip
-          pip install -r backend/requirements.txt
+          pip install --upgrade pip setuptools wheel
+          # Install torch separately for Intel
+          pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+          # Install remaining requirements
+          pip install numpy pillow onnxruntime fastapi uvicorn python-multipart python-json-logger
           deactivate
+        timeout-minutes: 15
 
       - name: Update package.json for x64
         run: |
-          node -e "
-          const fs = require('fs');
-          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-          pkg.build.mac.target = [{ target: 'dmg', arch: ['x64'] }];
+          node -e '
+          const fs = require("fs");
+          const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
+          pkg.build.mac.target = [{ target: "dmg", arch: ["x64"] }];
           pkg.build.extraResources = [
-            { from: 'backend', to: 'backend' },
-            { from: 'venv-x64', to: 'venv-x64' },
-            { from: 'model_files', to: 'model_files' },
-            { from: 'resource/qrcode.jpg', to: 'resource/qrcode.jpg' },
-            { from: 'resource/grcode.jpg', to: 'resource/grcode.jpg' },
-            { from: 'resource/logo.png', to: 'resource/logo.png' }
+            { from: "backend", to: "backend" },
+            { from: "venv-x64", to: "venv-x64" },
+            { from: "model_files", to: "model_files" },
+            { from: "resource/qrcode.jpg", to: "resource/qrcode.jpg" },
+            { from: "resource/grcode.jpg", to: "resource/grcode.jpg" },
+            { from: "resource/logo.png", to: "resource/logo.png" }
           ];
-          fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2));
-          "
+          fs.writeFileSync("package.json", JSON.stringify(pkg, null, 2));
+          '
 
       - name: Build macOS Intel
         run: npx electron-builder --mac --x64
@@ -147,20 +157,24 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install dependencies
+      - name: Install Node dependencies
         run: npm ci
 
       - name: Build frontend and electron
         run: npm run build
 
-      - name: Create Windows venv
+      - name: Create Windows venv and install dependencies
         shell: pwsh
         run: |
           python -m venv venv-x64
           .\venv-x64\Scripts\Activate.ps1
-          pip install --upgrade pip
-          pip install -r backend/requirements.txt
+          pip install --upgrade pip setuptools wheel
+          # Install torch for Windows
+          pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+          # Install remaining requirements
+          pip install numpy pillow onnxruntime fastapi uvicorn python-multipart python-json-logger
           deactivate
+        timeout-minutes: 15
 
       - name: Update package.json for Windows
         shell: pwsh
@@ -190,6 +204,7 @@ jobs:
   create-release:
     needs: [build-macos-arm64, build-macos-x64, build-windows]
     runs-on: ubuntu-latest
+    if: always() && needs.build-macos-arm64.result == 'success' && needs.build-macos-x64.result == 'success' && needs.build-windows.result == 'success'
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
