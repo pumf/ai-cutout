@@ -11,7 +11,6 @@ on:
         required: true
         default: '1.0.3'
 
-# Ensure jobs run independently
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
@@ -62,8 +61,7 @@ jobs:
           if-no-files-found: warn
 
   build-macos-x64:
-    runs-on: macos-13
-    # Ensure this job always runs, not cancelled by other jobs
+    runs-on: macos-12
     if: always()
     steps:
       - name: Checkout code
@@ -179,21 +177,23 @@ jobs:
         id: ver
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "VERSION=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+            VERSION="${{ github.event.inputs.version }}"
           else
-            echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+            VERSION="${GITHUB_REF#refs/tags/v}"
           fi
-          echo "Version: ${{ steps.ver.outputs.VERSION }}"
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+          echo "Version: $VERSION"
 
-      - name: Create Release using GitHub CLI
+      - name: Create Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION: ${{ steps.ver.outputs.VERSION }}
         run: |
-          # Create the release
-          gh release create "v${VERSION}" \
-            --title "小飞AI抠图 v${VERSION}" \
-            --notes "## 小飞AI抠图 v${VERSION}
+          VERSION="${{ env.VERSION }}"
+          echo "Creating release for version: $VERSION"
+          # Create release notes file
+          cat > release_notes.md << 'EOF'
+          ## 小飞AI抠图 v${VERSION}
 
           ### 更新内容
           - 优化模型列表加载状态显示
@@ -216,7 +216,12 @@ jobs:
 
           ### 注意事项
           - macOS 用户可能需要在 系统设置 > 隐私与安全 中允许应用运行
-          - Windows 用户请确保已安装 Python 3.9+ 并添加到 PATH" \
+          - Windows 用户请确保已安装 Python 3.9+ 并添加到 PATH
+          EOF
+          # Create the release
+          gh release create "v${VERSION}" \
+            --title "小飞AI抠图 v${VERSION}" \
+            --notes-file release_notes.md \
             --draft=false \
             --prerelease=false \
             2>/dev/null || echo "Release may already exist, continuing to upload files..."
@@ -224,9 +229,9 @@ jobs:
       - name: Upload DMG files
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION: ${{ steps.ver.outputs.VERSION }}
         run: |
-          # Find and upload DMG files
+          VERSION="${{ env.VERSION }}"
+          echo "Uploading DMG files for version: $VERSION"
           for file in $(find artifacts/ -name "*.dmg" -type f 2>/dev/null); do
             echo "Uploading: $file"
             gh release upload "v${VERSION}" "$file" --clobber || echo "Failed to upload $file"
@@ -235,9 +240,9 @@ jobs:
       - name: Upload EXE files
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION: ${{ steps.ver.outputs.VERSION }}
         run: |
-          # Find and upload EXE files
+          VERSION="${{ env.VERSION }}"
+          echo "Uploading EXE files for version: $VERSION"
           for file in $(find artifacts/ -name "*.exe" -type f 2>/dev/null); do
             echo "Uploading: $file"
             gh release upload "v${VERSION}" "$file" --clobber || echo "Failed to upload $file"
@@ -246,7 +251,7 @@ jobs:
       - name: Verify Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION: ${{ steps.ver.outputs.VERSION }}
         run: |
+          VERSION="${{ env.VERSION }}"
           echo "Release v${VERSION} created successfully!"
           gh release view "v${VERSION}" --json tagName,name,assets || echo "Could not verify release"
