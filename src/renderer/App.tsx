@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import './App.css';
 import { GifReader, GifWriter } from 'omggif';
-import { listFixedModels, loadFixedModel, loadCustomModel, processImageWithModel, selectModel, openExternal, saveImage, selectImage, copyImageToClipboard } from '../tauri';
+import { listFixedModels, loadFixedModel, loadCustomModel, processImageWithModel, selectModel, openExternal, saveImage, selectImage, copyImageToClipboard, checkForUpdates, openExternalUrl } from '../tauri';
 import { TitleBar } from './components/TitleBar';
 
 function App() {
@@ -18,6 +18,16 @@ function App() {
   const [errorModelId, setErrorModelId] = useState<string | null>(null);
   const [dragActive, setDragActive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Update check states
+  const [showUpdateDialog, setShowUpdateDialog] = useState(false);
+  const [updateInfo, setUpdateInfo] = useState<{
+    hasUpdate: boolean;
+    currentVersion: string;
+    latestVersion: string;
+    releaseUrl?: string;
+    releaseNotes?: string;
+  } | null>(null);
 
   const [scale, setScale] = useState(1);
   const [translateX, setTranslateX] = useState(0);
@@ -322,12 +332,6 @@ function App() {
   };
 
   const handleDownloadModel = async (url: string, modelName: string) => {
-    // 二次确认，特别是针对大文件
-    if (modelName.includes('2.0')) {
-      const confirmed = window.confirm(`下载 ${modelName} 模型需要约 1GB 的存储空间，且下载时间较长。\n\n是否继续前往下载页面？`);
-      if (!confirmed) return;
-    }
-    
     try {
       await openExternal(url);
       showToast('正在打开下载页面...', 'info');
@@ -337,24 +341,63 @@ function App() {
     }
   };
 
+  const handleUpdateDismiss = () => {
+    setShowUpdateDialog(false);
+  };
+
+  const handleUpdateDownload = async () => {
+    if (updateInfo?.releaseUrl) {
+      try {
+        await openExternalUrl(updateInfo.releaseUrl);
+        showToast('正在打开下载页面...', 'info');
+        setShowUpdateDialog(false);
+      } catch (e) {
+        console.error('Failed to open download page:', e);
+        showToast('打开下载页面失败', 'error');
+      }
+    }
+  };
+
   useEffect(() => {
     // Load models immediately
     const initTimer = setTimeout(() => {
       loadAvailableModels();
     }, 100);
-    
+
     // Disable context menu (right-click) to prevent "Reload" option
     const handleContextMenu = (e: MouseEvent) => {
       e.preventDefault();
       return false;
     };
-    
+
     document.addEventListener('contextmenu', handleContextMenu);
-    
+
     return () => {
       clearTimeout(initTimer);
       document.removeEventListener('contextmenu', handleContextMenu);
     };
+  }, []);
+
+  // Check for updates on app start
+  useEffect(() => {
+    const checkUpdates = async () => {
+      try {
+        // Delay update check to not interfere with app startup
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        const result = await checkForUpdates();
+        console.log('Update check result:', result);
+
+        if (result.hasUpdate) {
+          setUpdateInfo(result);
+          setShowUpdateDialog(true);
+        }
+      } catch (error) {
+        console.error('Failed to check for updates:', error);
+        // Silently fail - don't show error to user for update checks
+      }
+    };
+
+    checkUpdates();
   }, []);
 
   // Listen for auto-load completion
@@ -1941,6 +1984,53 @@ function App() {
               </div>
             </div>
             {isLoadingModel && <div className="modal-loading">加载模型中...</div>}
+          </div>
+        </div>
+      )}
+
+      {/* Update Dialog */}
+      {showUpdateDialog && updateInfo && (
+        <div className="modal-overlay" onClick={handleUpdateDismiss}>
+          <div className="modal update-modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>🎉 发现新版本</h3>
+              <button className="modal-close" onClick={handleUpdateDismiss}>×</button>
+            </div>
+            <div className="modal-content">
+              <div className="update-info">
+                <div className="version-comparison">
+                  <div className="version-item current">
+                    <span className="version-label">当前版本</span>
+                    <span className="version-number">v{updateInfo.currentVersion}</span>
+                  </div>
+                  <div className="version-arrow">→</div>
+                  <div className="version-item latest">
+                    <span className="version-label">最新版本</span>
+                    <span className="version-number">v{updateInfo.latestVersion}</span>
+                  </div>
+                </div>
+                <div className="update-message">
+                  <p>检测到新版本可用！建议更新以获得更好的体验。</p>
+                </div>
+                {updateInfo.releaseNotes && (
+                  <div className="update-notes">
+                    <h4>更新内容：</h4>
+                    <div className="release-notes-content">
+                      {updateInfo.releaseNotes.substring(0, 500)}
+                      {updateInfo.releaseNotes.length > 500 ? '...' : ''}
+                    </div>
+                  </div>
+                )}
+              </div>
+              <div className="update-actions">
+                <button className="btn btn-secondary" onClick={handleUpdateDismiss}>
+                  稍后再说
+                </button>
+                <button className="btn btn-primary" onClick={handleUpdateDownload}>
+                  立即下载更新
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

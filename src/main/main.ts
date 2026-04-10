@@ -467,3 +467,59 @@ ipcMain.handle('load-custom-model', async (_event: any, modelPath: string, model
     throw error;
   }
 });
+
+// Check for updates from GitHub releases
+ipcMain.handle('check-for-updates', async () => {
+  try {
+    const response = await fetch('https://api.github.com/repos/pumf/ai-cutout/releases/latest');
+    if (!response.ok) {
+      throw new Error('Failed to fetch latest release');
+    }
+    const data: any = await response.json();
+    const latestVersion = data.tag_name.replace(/^v/, '');
+    const currentVersion = app.getVersion();
+    
+    console.log('Current version:', currentVersion);
+    console.log('Latest version:', latestVersion);
+    
+    // Compare versions
+    const hasUpdate = compareVersions(latestVersion, currentVersion) > 0;
+    
+    return {
+      hasUpdate,
+      currentVersion,
+      latestVersion,
+      releaseUrl: data.html_url,
+      releaseNotes: data.body
+    };
+  } catch (error) {
+    console.error('Failed to check for updates:', error);
+    return {
+      hasUpdate: false,
+      currentVersion: app.getVersion(),
+      error: error instanceof Error ? error.message : 'Unknown error'
+    };
+  }
+});
+
+// Open external URL
+ipcMain.handle('open-external', async (_event: any, url: string) => {
+  const { shell } = require('electron');
+  await shell.openExternal(url);
+});
+
+// Version comparison helper
+function compareVersions(v1: string, v2: string): number {
+  const parts1 = v1.split('.').map(Number);
+  const parts2 = v2.split('.').map(Number);
+  
+  for (let i = 0; i < Math.max(parts1.length, parts2.length); i++) {
+    const part1 = parts1[i] || 0;
+    const part2 = parts2[i] || 0;
+    
+    if (part1 > part2) return 1;
+    if (part1 < part2) return -1;
+  }
+  
+  return 0;
+}

@@ -11,8 +11,19 @@ declare global {
       windowMinimize: () => Promise<void>;
       windowMaximize: () => Promise<void>;
       windowClose: () => Promise<void>;
+      checkForUpdates: () => Promise<UpdateCheckResult>;
+      openExternal: (url: string) => Promise<void>;
     };
   }
+}
+
+interface UpdateCheckResult {
+  hasUpdate: boolean;
+  currentVersion: string;
+  latestVersion: string;
+  releaseUrl?: string;
+  releaseNotes?: string;
+  error?: string;
 }
 
 const BACKEND_URL = 'http://127.0.0.1:8765';
@@ -119,4 +130,20 @@ export function windowClose() {
   if (window.electronAPI) {
     window.electronAPI.windowClose();
   }
+}
+
+export async function checkForUpdates(): Promise<UpdateCheckResult> {
+  if (!window.electronAPI) {
+    throw new Error('Electron API not available');
+  }
+  return window.electronAPI.checkForUpdates();
+}
+
+export async function openExternalUrl(url: string): Promise<void> {
+  if (!window.electronAPI) {
+    // Fallback to window.open for development
+    window.open(url, '_blank');
+    return;
+  }
+  await window.electronAPI.openExternal(url);
 }

@@ -1,0 +1,26 @@
+2026-04-08 17:44:57,048 - INFO - Logging to: /Users/mac/Project/open_code/ai-cutout/logs/backend.log
+2026-04-08 17:44:57,078 - INFO - Starting AI Background Remover API...
+2026-04-08 17:44:57,078 - INFO - Model directory: /Users/mac/Project/open_code/ai-cutout/model_files
+2026-04-08 17:44:57,078 - INFO - Available models: [{'name': 'model_1.4', 'display_name': 'RMBG-1.4 (速度快)', 'path': '/Users/mac/Project/open_code/ai-cutout/model_files/1.4/model.onnx', 'type': 'onnx', 'size': 176153355}]
+2026-04-08 17:44:57,078 - INFO - Auto-loading built-in model: /Users/mac/Project/open_code/ai-cutout/model_files/1.4/model.onnx
+2026-04-08 17:44:57,078 - INFO - Loading .onnx model from /Users/mac/Project/open_code/ai-cutout/model_files/1.4/model.onnx
+2026-04-08 17:44:57,553 - INFO - Using device: cpu
+2026-04-08 17:44:57,694 - INFO - ONNX model loaded from /Users/mac/Project/open_code/ai-cutout/model_files/1.4/model.onnx
+2026-04-08 17:44:57,695 - INFO - Built-in model loaded successfully
+2026-04-08 17:45:06,475 - INFO - Shutting down...
+2026-04-08 17:47:41,404 - INFO - Logging to: /Users/mac/Project/open_code/ai-cutout/logs/backend.log
+2026-04-08 17:47:41,430 - INFO - Starting AI Background Remover API...
+2026-04-08 17:47:41,430 - INFO - Model directory: /Users/mac/Project/open_code/ai-cutout/model_files
+2026-04-08 17:47:41,431 - INFO - Available models: [{'name': 'model_1.4', 'display_name': 'RMBG-1.4 (速度快)', 'path': '/Users/mac/Project/open_code/ai-cutout/model_files/1.4/model.onnx', 'type': 'onnx', 'size': 176153355}]
+2026-04-08 17:47:41,431 - INFO - Auto-loading built-in model: /Users/mac/Project/open_code/ai-cutout/model_files/1.4/model.onnx
+2026-04-08 17:47:41,431 - INFO - Loading .onnx model from /Users/mac/Project/open_code/ai-cutout/model_files/1.4/model.onnx
+2026-04-08 17:47:41,546 - INFO - Using device: cpu
+2026-04-08 17:47:41,693 - INFO - ONNX model loaded from /Users/mac/Project/open_code/ai-cutout/model_files/1.4/model.onnx
+2026-04-08 17:47:41,693 - INFO - Built-in model loaded successfully
+2026-04-08 17:47:50,697 - INFO - Loading .onnx model from /Users/mac/Project/open_code/ai-cutout/model_files/1.4/model.onnx
+2026-04-08 17:47:50,698 - INFO - Using device: cpu
+2026-04-08 17:47:50,802 - INFO - ONNX model loaded from /Users/mac/Project/open_code/ai-cutout/model_files/1.4/model.onnx
+2026-04-08 17:47:55,977 - INFO - Loading .onnx model from /Users/mac/Project/open_code/ai-cutout/model_files/1.4/model.onnx
+2026-04-08 17:47:55,977 - INFO - Using device: cpu
+2026-04-08 17:47:56,064 - INFO - ONNX model loaded from /Users/mac/Project/open_code/ai-cutout/model_files/1.4/model.onnx
+2026-04-08 17:48:10,909 - INFO - Shutting down...
