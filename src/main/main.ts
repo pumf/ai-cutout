@@ -118,6 +118,8 @@ async function startViteServer(): Promise<number> {
   });
 }
 
+let backendPort: number = 8765;
+
 async function startPythonBackend(): Promise<void> {
   const appPath = getAppPath();
   const pythonCmd = getPythonCmd();
@@ -135,6 +137,15 @@ async function startPythonBackend(): Promise<void> {
   console.log('Python command:', pythonCmd);
   console.log('Backend path:', backendPath);
   console.log('Architecture:', process.arch);
+
+  // Delete old port file if exists
+  const portFile = app.isPackaged
+    ? path.join(process.resourcesPath, 'backend', '.backend_port')
+    : path.join(appPath, 'backend', '.backend_port');
+  
+  if (fs.existsSync(portFile)) {
+    fs.unlinkSync(portFile);
+  }
 
   return new Promise((resolve, reject) => {
     let isStarted = false;
@@ -156,7 +167,18 @@ async function startPythonBackend(): Promise<void> {
       // Check if server is ready
       if (output.includes('Uvicorn running') || output.includes('Application startup complete')) {
         isStarted = true;
-        resolve();
+        
+        // Try to read the port file
+        setTimeout(() => {
+          if (fs.existsSync(portFile)) {
+            const port = parseInt(fs.readFileSync(portFile, 'utf8').trim(), 10);
+            if (!isNaN(port)) {
+              backendPort = port;
+              console.log(`Backend started on port ${backendPort}`);
+            }
+          }
+          resolve();
+        }, 500);
       }
     });
 
@@ -198,15 +220,15 @@ async function startPythonBackend(): Promise<void> {
       }
     });
 
-    // Timeout after 10 seconds
+    // Timeout after 15 seconds
     setTimeout(() => {
       if (!isStarted) {
         if (pythonProcess) {
           pythonProcess.kill();
         }
-        reject(new Error('Python backend failed to start within 10 seconds'));
+        reject(new Error('Python backend failed to start within 15 seconds'));
       }
-    }, 10000);
+    }, 15000);
   });
 }
 
@@ -358,7 +380,7 @@ ipcMain.handle('select-image', async () => {
 
 ipcMain.handle('process-image', async (_event: any, imageData: string, filename: string) => {
   try {
-    const response = await fetch('http://127.0.0.1:8765/process', {
+    const response = await fetch(`http://127.0.0.1:${backendPort}/process`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -416,7 +438,7 @@ ipcMain.handle('copy-image-to-clipboard', async (_event: any, imageData: string)
 
 ipcMain.handle('check-model-status', async () => {
   try {
-    const response = await fetch('http://127.0.0.1:8765/model/status');
+    const response = await fetch(`http://127.0.0.1:${backendPort}/model/status`);
     return await response.json();
   } catch (error) {
     return { loaded: false, error: 'Backend not running' };
@@ -456,7 +478,7 @@ ipcMain.handle('window-close', () => {
 
 ipcMain.handle('load-custom-model', async (_event: any, modelPath: string, modelId?: string) => {
   try {
-    const response = await fetch('http://127.0.0.1:8765/models/load-custom', {
+    const response = await fetch(`http://127.0.0.1:${backendPort}/models/load-custom`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ path: modelPath, model_id: modelId })
@@ -466,6 +488,11 @@ ipcMain.handle('load-custom-model', async (_event: any, modelPath: string, model
     console.error('Failed to load custom model:', error);
     throw error;
   }
+});
+
+// Get backend port
+ipcMain.handle('get-backend-port', () => {
+  return backendPort;
 });
 
 // Check for updates from GitHub releases

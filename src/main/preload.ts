@@ -14,4 +14,5 @@ contextBridge.exposeInMainWorld('electronAPI', {
   windowClose: () => ipcRenderer.invoke('window-close'),
   checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
   openExternal: (url: string) => ipcRenderer.invoke('open-external', url),
+  getBackendPort: () => ipcRenderer.invoke('get-backend-port'),
 });

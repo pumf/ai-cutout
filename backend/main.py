@@ -658,4 +658,29 @@ async def process_upload(request: Request):
 
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="127.0.0.1", port=8765)
+    import socket
+    
+    def find_available_port(start_port=8765, max_port=8775):
+        """Find an available port in the given range"""
+        for port in range(start_port, max_port + 1):
+            try:
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                    s.bind(('127.0.0.1', port))
+                    return port
+            except OSError:
+                logger.info(f"Port {port} is in use, trying next...")
+                continue
+        raise RuntimeError(f"No available ports found in range {start_port}-{max_port}")
+    
+    try:
+        port = find_available_port()
+        logger.info(f"Starting server on port {port}")
+        
+        # Write port to a file so the main process can read it
+        port_file = Path(__file__).parent / '.backend_port'
+        port_file.write_text(str(port))
+        
+        uvicorn.run(app, host="127.0.0.1", port=port)
+    except Exception as e:
+        logger.error(f"Failed to start server: {e}")
+        raise

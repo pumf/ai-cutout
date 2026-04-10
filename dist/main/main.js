@@ -133,6 +133,7 @@ async function startViteServer() {
         viteServer = viteProc;
     });
 }
+let backendPort = 8765;
 async function startPythonBackend() {
     const appPath = getAppPath();
     const pythonCmd = getPythonCmd();
@@ -147,6 +148,13 @@ async function startPythonBackend() {
     console.log('Python command:', pythonCmd);
     console.log('Backend path:', backendPath);
     console.log('Architecture:', process.arch);
+    // Delete old port file if exists
+    const portFile = electron_1.app.isPackaged
+        ? path.join(process.resourcesPath, 'backend', '.backend_port')
+        : path.join(appPath, 'backend', '.backend_port');
+    if (fs.existsSync(portFile)) {
+        fs.unlinkSync(portFile);
+    }
     return new Promise((resolve, reject) => {
         let isStarted = false;
         let errorOutput = '';
@@ -164,7 +172,17 @@ async function startPythonBackend() {
             // Check if server is ready
             if (output.includes('Uvicorn running') || output.includes('Application startup complete')) {
                 isStarted = true;
-                resolve();
+                // Try to read the port file
+                setTimeout(() => {
+                    if (fs.existsSync(portFile)) {
+                        const port = parseInt(fs.readFileSync(portFile, 'utf8').trim(), 10);
+                        if (!isNaN(port)) {
+                            backendPort = port;
+                            console.log(`Backend started on port ${backendPort}`);
+                        }
+                    }
+                    resolve();
+                }, 500);
             }
         });
         pythonProcess.stderr.on('data', (data) => {
@@ -199,15 +217,15 @@ async function startPythonBackend() {
                 reject(new Error(`Python backend exited with code ${code}. Error: ${errorOutput}`));
             }
         });
-        // Timeout after 10 seconds
+        // Timeout after 15 seconds
         setTimeout(() => {
             if (!isStarted) {
                 if (pythonProcess) {
                     pythonProcess.kill();
                 }
-                reject(new Error('Python backend failed to start within 10 seconds'));
+                reject(new Error('Python backend failed to start within 15 seconds'));
             }
-        }, 10000);
+        }, 15000);
     });
 }
 async function createWindow() {
@@ -345,7 +363,7 @@ electron_1.ipcMain.handle('select-image', async () => {
 });
 electron_1.ipcMain.handle('process-image', async (_event, imageData, filename) => {
     try {
-        const response = await fetch('http://127.0.0.1:8765/process', {
+        const response = await fetch(`http://127.0.0.1:${backendPort}/process`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -399,7 +417,7 @@ electron_1.ipcMain.handle('copy-image-to-clipboard', async (_event, imageData) =
 });
 electron_1.ipcMain.handle('check-model-status', async () => {
     try {
-        const response = await fetch('http://127.0.0.1:8765/model/status');
+        const response = await fetch(`http://127.0.0.1:${backendPort}/model/status`);
         return await response.json();
     }
     catch (error) {
@@ -435,7 +453,7 @@ electron_1.ipcMain.handle('window-close', () => {
 });
 electron_1.ipcMain.handle('load-custom-model', async (_event, modelPath, modelId) => {
     try {
-        const response = await fetch('http://127.0.0.1:8765/models/load-custom', {
+        const response = await fetch(`http://127.0.0.1:${backendPort}/models/load-custom`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ path: modelPath, model_id: modelId })
@@ -446,6 +464,10 @@ electron_1.ipcMain.handle('load-custom-model', async (_event, modelPath, modelId
         console.error('Failed to load custom model:', error);
         throw error;
     }
+});
+// Get backend port
+electron_1.ipcMain.handle('get-backend-port', () => {
+    return backendPort;
 });
 // Check for updates from GitHub releases
 electron_1.ipcMain.handle('check-for-updates', async () => {

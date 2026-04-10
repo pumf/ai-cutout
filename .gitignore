@@ -3,7 +3,10 @@ node_modules/
 *.pyc
 __pycache__/
 venv/
+venv-arm64/
+venv-x64/
 backend/output/
+backend/.backend_port
 *.egg-info/
 dist/
 build/
@@ -11,3 +14,5 @@ release/
 *.dmg
 *.spec
 venv-minimal/
+logs/
+*.log

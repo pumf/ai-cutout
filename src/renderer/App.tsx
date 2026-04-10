@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import './App.css';
 import { GifReader, GifWriter } from 'omggif';
-import { listFixedModels, loadFixedModel, loadCustomModel, processImageWithModel, selectModel, openExternal, saveImage, selectImage, copyImageToClipboard, checkForUpdates, openExternalUrl } from '../tauri';
+import { listFixedModels, loadFixedModel, loadCustomModel, processImageWithModel, selectModel, openExternalUrl, saveImage, selectImage, copyImageToClipboard, checkForUpdates, getBackendPort } from '../api';
 import { TitleBar } from './components/TitleBar';
 
 function App() {
@@ -52,6 +52,19 @@ function App() {
   useEffect(() => {
     brushSizeRef.current = brushSize;
   }, [brushSize]);
+  
+  // Initialize backend port from main process
+  useEffect(() => {
+    const initPort = async () => {
+      try {
+        const port = await getBackendPort();
+        console.log('Backend port initialized:', port);
+      } catch (error) {
+        console.error('Failed to get backend port:', error);
+      }
+    };
+    initPort();
+  }, []);
   
   const [isDrawing, setIsDrawing] = useState(false);
   const [maskHistory, setMaskHistory] = useState<ImageData[]>([]);
@@ -333,7 +346,7 @@ function App() {
 
   const handleDownloadModel = async (url: string, modelName: string) => {
     try {
-      await openExternal(url);
+      await openExternalUrl(url);
       showToast('正在打开下载页面...', 'info');
     } catch (e) {
       console.error('Failed to open download page:', e);
