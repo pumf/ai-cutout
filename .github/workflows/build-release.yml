@@ -1,0 +1,248 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version number (e.g., 1.0.3)'
+        required: true
+        default: '1.0.3'
+
+jobs:
+  build-macos-arm64:
+    runs-on: macos-14  # Apple Silicon runner
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build frontend and electron
+        run: npm run build
+
+      - name: Create ARM64 venv
+        run: |
+          python3 -m venv venv-arm64
+          source venv-arm64/bin/activate
+          pip install --upgrade pip
+          pip install -r backend/requirements.txt
+          deactivate
+
+      - name: Update package.json for ARM64
+        run: |
+          node -e "
+          const fs = require('fs');
+          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          pkg.build.mac.target = [{ target: 'dmg', arch: ['arm64'] }];
+          fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2));
+          "
+
+      - name: Build macOS ARM64
+        run: npx electron-builder --mac --arm64
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload ARM64 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-arm64
+          path: release/*.dmg
+
+  build-macos-x64:
+    runs-on: macos-13  # Intel runner
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build frontend and electron
+        run: npm run build
+
+      - name: Create x64 venv
+        run: |
+          python3 -m venv venv-x64
+          source venv-x64/bin/activate
+          pip install --upgrade pip
+          pip install -r backend/requirements.txt
+          deactivate
+
+      - name: Update package.json for x64
+        run: |
+          node -e "
+          const fs = require('fs');
+          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          pkg.build.mac.target = [{ target: 'dmg', arch: ['x64'] }];
+          fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2));
+          "
+
+      - name: Build macOS Intel
+        run: npx electron-builder --mac --x64
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Intel artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-x64
+          path: release/*.dmg
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build frontend and electron
+        run: npm run build
+
+      - name: Create Windows venv
+        run: |
+          python -m venv venv-x64
+          .\venv-x64\Scripts\activate
+          pip install --upgrade pip
+          pip install -r backend/requirements.txt
+          deactivate
+
+      - name: Build Windows
+        run: npx electron-builder --win --x64
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-x64
+          path: release/*.exe
+
+  create-release:
+    needs: [build-macos-arm64, build-macos-x64, build-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: List artifacts
+        run: ls -R artifacts
+
+      - name: Get version
+        id: get_version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "VERSION=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: v${{ steps.get_version.outputs.VERSION }}
+          release_name: 小飞AI抠图 v${{ steps.get_version.outputs.VERSION }}
+          body: |
+            ## 小飞AI抠图 v${{ steps.get_version.outputs.VERSION }}
+
+            ### 更新内容
+            - 优化模型列表加载状态显示
+            - 修复复制到剪贴板功能
+            - 修复导出图片默认文件名
+            - 修复缩放比例同步问题
+            - 添加跨平台支持（macOS Intel/ARM64、Windows）
+            - 改进错误处理和用户提示
+
+            ### 安装包
+
+            | 平台 | 文件 | 说明 |
+            |------|------|------|
+            | macOS Apple Silicon | 小飞AI抠图-${{ steps.get_version.outputs.VERSION }}-arm64.dmg | M1/M2/M3 Mac |
+            | macOS Intel | 小飞AI抠图-${{ steps.get_version.outputs.VERSION }}-x64.dmg | Intel Mac |
+            | Windows | 小飞AI抠图-${{ steps.get_version.outputs.VERSION }}-setup.exe | Windows 10/11 |
+
+            ### 系统要求
+            - **macOS**: macOS 11.0 或更高版本
+            - **Windows**: Windows 10 或更高版本，需要安装 Python 3.9+
+
+            ### 注意事项
+            - macOS 用户可能需要在 系统设置 > 隐私与安全 中允许应用运行
+            - Windows 用户请确保已安装 Python 3.9+ 并添加到 PATH
+          draft: false
+          prerelease: false
+
+      - name: Upload macOS ARM64
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: artifacts/macos-arm64/小飞AI抠图-${{ steps.get_version.outputs.VERSION }}-arm64.dmg
+          asset_name: 小飞AI抠图-${{ steps.get_version.outputs.VERSION }}-arm64.dmg
+          asset_content_type: application/x-apple-diskimage
+
+      - name: Upload macOS Intel
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: artifacts/macos-x64/小飞AI抠图-${{ steps.get_version.outputs.VERSION }}-x64.dmg
+          asset_name: 小飞AI抠图-${{ steps.get_version.outputs.VERSION }}-x64.dmg
+          asset_content_type: application/x-apple-diskimage
+
+      - name: Upload Windows
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: artifacts/windows-x64/小飞AI抠图-${{ steps.get_version.outputs.VERSION }}-setup.exe
+          asset_name: 小飞AI抠图-${{ steps.get_version.outputs.VERSION }}-setup.exe
+          asset_content_type: application/x-msdownload
