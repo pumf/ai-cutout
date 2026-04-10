@@ -1,11 +1,12 @@
-torch
-torchvision
+# Core dependencies (install torch/torchvision separately in CI for speed)
 numpy
 pillow
-kornia
-transformers
-onnxruntime
 fastapi
 uvicorn
 python-multipart
 python-json-logger
+
+# Optional: install based on platform
+# torch
+# torchvision
+# onnxruntime  # Use onnxruntime-silicon on Apple Silicon
