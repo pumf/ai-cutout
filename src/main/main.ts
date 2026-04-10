@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, clipboard, nativeImage } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 import { spawn } from 'child_process';
@@ -18,7 +18,7 @@ const getAppPath = () => {
 
 const getDistPath = () => {
   if (app.isPackaged) {
-    return path.join(process.resourcesPath, 'dist', 'renderer');
+    return path.join(__dirname, '..', 'renderer');
   }
   return path.join(getAppPath(), 'dist', 'renderer');
 };
@@ -32,7 +32,12 @@ const getPythonCmd = () => {
     console.log('venv not found at', venvPath, 'trying system python');
     return 'python3';
   }
+  // Development mode: use project venv
   const appPath = path.join(__dirname, '..', '..');
+  const venvPath = path.join(appPath, 'venv', 'bin', 'python3');
+  if (fs.existsSync(venvPath)) {
+    return venvPath;
+  }
   return process.platform === 'win32' ? 'python' : 'python3';
 };
 
@@ -107,7 +112,6 @@ async function createWindow() {
     height: 800,
     minWidth: 900,
     minHeight: 600,
-    titleBarStyle: 'hidden',
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -116,6 +120,8 @@ async function createWindow() {
     title: '小飞AI抠图',
     backgroundColor: '#ffffff',
     show: false,
+    titleBarStyle: 'hidden',
+    trafficLightPosition: { x: 12, y: 10 },
   });
   
   mainWindow.once('ready-to-show', () => {
@@ -165,16 +171,29 @@ ipcMain.handle('select-image', async () => {
   const result = await dialog.showOpenDialog(mainWindow!, {
     properties: ['openFile'],
     filters: [
-      { name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp'] }
+      { name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif'] }
     ]
   });
   
   if (!result.canceled && result.filePaths.length > 0) {
     const filePath = result.filePaths[0];
     const imageBuffer = fs.readFileSync(filePath);
+    const ext = path.extname(filePath).toLowerCase();
+    
+    // Map file extension to MIME type
+    const mimeTypes: Record<string, string> = {
+      '.png': 'image/png',
+      '.jpg': 'image/jpeg',
+      '.jpeg': 'image/jpeg',
+      '.webp': 'image/webp',
+      '.gif': 'image/gif'
+    };
+    const mimeType = mimeTypes[ext] || 'image/png';
+    
+    // Return data URL with proper MIME type prefix
     return {
       path: filePath,
-      data: imageBuffer.toString('base64'),
+      data: `data:${mimeType};base64,${imageBuffer.toString('base64')}`,
       name: path.basename(filePath)
     };
   }
@@ -206,20 +225,37 @@ ipcMain.handle('process-image', async (_event: any, imageData: string, filename:
   }
 });
 
-ipcMain.handle('save-image', async (_event: any, imageData: string) => {
+ipcMain.handle('save-image', async (_event: any, imageData: string, defaultName?: string) => {
   const result = await dialog.showSaveDialog(mainWindow!, {
+    defaultPath: defaultName || 'untitled.png',
     filters: [
       { name: 'PNG Image', extensions: ['png'] },
       { name: 'JPEG Image', extensions: ['jpg', 'jpeg'] }
     ]
   });
-  
+
   if (!result.canceled && result.filePath) {
-    const buffer = Buffer.from(imageData, 'base64');
+    // Remove data URL prefix if present
+    const base64Data = imageData.replace(/^data:image\/\w+;base64,/, '');
+    const buffer = Buffer.from(base64Data, 'base64');
     fs.writeFileSync(result.filePath, buffer);
     return result.filePath;
   }
   return null;
+});
+
+ipcMain.handle('copy-image-to-clipboard', async (_event: any, imageData: string) => {
+  try {
+    // Remove data URL prefix if present
+    const base64Data = imageData.replace(/^data:image\/\w+;base64,/, '');
+    const buffer = Buffer.from(base64Data, 'base64');
+    const image = nativeImage.createFromBuffer(buffer);
+    clipboard.writeImage(image);
+    return { success: true };
+  } catch (error) {
+    console.error('Failed to copy image to clipboard:', error);
+    throw error;
+  }
 });
 
 ipcMain.handle('check-model-status', async () => {

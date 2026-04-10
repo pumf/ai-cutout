@@ -1,21 +1,21 @@
 # 小飞AI抠图
 
-一款完全本地运行的AI智能抠图桌面应用，基于 Tauri + Rust 构建，安装包仅 170MB，保护您的隐私，无需联网即可快速去除图片背景。
+一款完全本地运行的AI智能抠图桌面应用，基于 Electron + React 构建，安装包仅 300MB，保护您的隐私，无需联网即可快速去除图片背景。
 
 ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-blue)
-![Version](https://img.shields.io/badge/version-1.0.0-green)
+![Version](https://img.shields.io/badge/version-1.0.2-green)
 ![License](https://img.shields.io/badge/license-MIT-yellow)
-![Tauri](https://img.shields.io/badge/tauri-2.0-blueviolet)
-![Rust](https://img.shields.io/badge/rust-1.77+-orange)
+![Electron](https://img.shields.io/badge/electron-28.x-blueviolet)
+![React](https://img.shields.io/badge/react-18.x-61DAFB)
 
 ## 下载
 
 | 平台 | 下载地址 | 体积 |
 |------|----------|------|
-| macOS Apple Silicon (M1/M2/M3) | [小飞AI抠图-1.0.0-aarch64.dmg](https://github.com/pumf/ai-cutout/releases) | ~170MB |
-| macOS Intel | [小飞AI抠图-1.0.0-x64.dmg](https://github.com/pumf/ai-cutout/releases) | ~170MB |
-| Windows | [小飞AI抠图-1.0.0-setup.exe](https://github.com/pumf/ai-cutout/releases) | ~170MB |
-| Linux | [小飞AI抠图-1.0.0.AppImage](https://github.com/pumf/ai-cutout/releases) | ~170MB |
+| macOS Apple Silicon (M1/M2/M3) | [小飞AI抠图-1.0.2-arm64.dmg](https://github.com/pumf/ai-cutout/releases) | ~311MB |
+| macOS Intel | [小飞AI抠图-1.0.2-x64.dmg](https://github.com/pumf/ai-cutout/releases) | ~311MB |
+| Windows | [小飞AI抠图-1.0.2-setup.exe](https://github.com/pumf/ai-cutout/releases) | ~311MB |
+| Linux | [小飞AI抠图-1.0.2.AppImage](https://github.com/pumf/ai-cutout/releases) | ~311MB |
 
 ## 软件介绍
 
@@ -25,12 +25,13 @@
 
 - 🖼️ **智能抠图** - AI 自动识别并去除图片背景
 - 🔒 **本地运行** - 完全离线处理，保护隐私
-- 🚀 **极速体验** - Tauri 构建，启动快、体积小（仅 170MB）
+- 🚀 **稳定体验** - Electron 构建，成熟稳定、功能丰富
 - 💻 **跨平台** - 支持 macOS、Windows、Linux
 - 🎨 **多种格式** - 支持 PNG、JPG、WebP、GIF 等常见图片格式
 - 🤖 **多模型支持** - 内置 RMBG-1.4，支持 RMBG-2.0
 - 📋 **一键复制** - 处理结果可直接复制到剪贴板
 - 🖌️ **背景替换** - 支持纯色背景和自定义图片背景
+- ✏️ **擦除修补** - 支持手动擦除和修补抠图结果
 
 ## 效果展示
 
@@ -46,40 +47,54 @@
 
 | 层级 | 技术选型 | 说明 |
 |------|----------|------|
-| 桌面框架 | Tauri 2.0 | 轻量级、高性能、小体积 |
-| 前端 | React + TypeScript + Vite | 现代化前端技术栈 |
-| 后端 | Rust | 高性能系统级语言 |
-| AI 推理 | ONNX Runtime (Rust) | 跨平台高性能推理 |
-| 图像处理 | image crate | Rust 原生图像处理 |
-| 剪贴板 | arboard | 跨平台剪贴板操作 |
+| 桌面框架 | Electron 28.x | 成熟稳定、功能丰富、跨平台 |
+| 前端 | React 18 + TypeScript + Vite | 现代化前端技术栈 |
+| 后端 | Python + FastAPI | AI 推理服务 |
+| AI 推理 | ONNX Runtime (Python) | 跨平台高性能推理 |
+| 图像处理 | Pillow + NumPy | Python 图像处理库 |
+| 剪贴板 | Electron Clipboard API | 原生剪贴板操作 |
+| 进程通信 | Electron IPC | 主进程与渲染进程通信 |
 
-### 架构对比
+### 架构说明
 
-| 项目 | 旧版 (Electron) | 新版 (Tauri) | 优化 |
-|------|-----------------|--------------|------|
-| 安装包体积 | ~336 MB | ~170 MB | ↓ 49% |
-| 启动速度 | 较慢 | 秒开 | 提升明显 |
-| 内存占用 | 较高 | 低 | 更轻量 |
-| 依赖 | Node.js + Python | 系统 WebView | 更简洁 |
+小飞AI抠图采用 Electron 架构，结合了 Web 技术的跨平台优势和原生桌面应用的体验：
+
+- **主进程 (Main Process)**: 负责窗口管理、系统集成、Python 后端服务管理
+- **渲染进程 (Renderer Process)**: React 前端界面，负责用户交互和图片展示
+- **Python 后端**: 独立的 AI 推理服务，通过本地 HTTP 与 Electron 通信
+
+### 版本演进
+
+| 项目 | Tauri 版 (v1.0.0) | Electron 版 (v1.0.2) | 说明 |
+|------|-------------------|----------------------|------|
+| 安装包体积 | ~170 MB | ~311 MB | Electron 包含 Chromium |
+| 启动速度 | 秒开 | 较快 | Electron 需加载 Chromium |
+| 内存占用 | 较低 | 中等 | Electron 内存开销较大 |
+| 功能丰富度 | 基础功能 | 更丰富 | Electron 生态更成熟 |
+| 稳定性 | 良好 | 优秀 | Electron 经过长期验证 |
 
 ### 项目结构
 
 ```
 ai-cutout/
 ├── src/
-│   ├── renderer/          # React 前端
-│   ├── tauri.ts          # Tauri API 封装
+│   ├── renderer/          # React 前端（渲染进程）
+│   │   ├── components/    # React 组件
+│   │   ├── App.tsx       # 主应用组件
+│   │   └── main.tsx      # 渲染进程入口
+│   ├── main/             # Electron 主进程
+│   │   ├── main.ts       # 主进程入口
+│   │   ├── preload.ts    # 预加载脚本（安全通信）
+│   │   └── start.ts      # 启动逻辑
 │   └── types/            # 类型定义
-├── src-tauri/            # Tauri + Rust 后端
-│   ├── src/
-│   │   ├── main.rs       # 主程序入口
-│   │   └── model.rs      # AI 模型推理
-│   ├── Cargo.toml        # Rust 依赖
-│   ├── tauri.conf.json   # Tauri 配置
-│   └── capabilities/     # 权限配置
-├── backend/              # Python 后端（旧版，保留参考）
+├── backend/              # Python AI 推理服务
+│   ├── main.py           # FastAPI 服务入口
+│   ├── model.py          # AI 模型推理
+│   └── requirements.txt  # Python 依赖
 ├── model_files/          # AI 模型文件
 │   └── 1.4/             # RMBG-1.4 模型
+├── dist/                 # 构建输出目录
+├── release/              # 打包输出目录
 ├── scripts/              # 构建脚本
 └── package.json          # 项目配置
 ```
@@ -135,22 +150,27 @@ ai-cutout/
 
 #### macOS
 
-1. 下载 `小飞AI抠图-1.0.0-aarch64.dmg` (Apple Silicon) 或 `小飞AI抠图-1.0.0-x64.dmg` (Intel)
+1. 下载 `小飞AI抠图-1.0.2-arm64.dmg` (Apple Silicon) 或 `小飞AI抠图-1.0.2-x64.dmg` (Intel)
 2. 打开 DMG 文件
 3. 将应用拖拽到应用程序文件夹
 4. 首次打开可能需要右键点击选择"打开"
 
+**注意**: macOS 可能会提示"无法验证开发者"，请前往 **系统设置 > 隐私与安全** 中允许打开。
+
 #### Windows
 
-1. 下载 `小飞AI抠图-1.0.0-setup.exe`
+1. 下载 `小飞AI抠图-1.0.2-setup.exe`
 2. 运行安装程序
 3. 按照提示完成安装
+4. 首次运行可能需要允许防火墙访问
 
 #### Linux
 
-1. 下载 `小飞AI抠图-1.0.0.AppImage`
-2. 添加执行权限：`chmod +x 小飞AI抠图-1.0.0.AppImage`
-3. 运行：`./小飞AI抠图-1.0.0.AppImage`
+1. 下载 `小飞AI抠图-1.0.2.AppImage`
+2. 添加执行权限：`chmod +x 小飞AI抠图-1.0.2.AppImage`
+3. 运行：`./小飞AI抠图-1.0.2.AppImage`
+
+**依赖要求**: Linux 系统需要安装 Python 3.9+ 和相关依赖（AppImage 已内置）
 
 ### 快速开始
 
@@ -215,11 +235,14 @@ A: 目前主要支持 macOS。Windows 和 Linux 版本正在开发中，敬请�
 
 ## 开发计划
 
-- [ ] Windows 版本支持
-- [ ] Linux 版本支持
+- [x] macOS 版本支持
+- [x] Windows 版本支持
+- [x] Linux 版本支持
+- [x] 手动擦除/修补功能
 - [ ] 批量处理功能
 - [ ] 更多 AI 模型支持
 - [ ] GPU 加速推理
+- [ ] 快捷键自定义
 
 ## 许可证
 
@@ -233,5 +256,6 @@ MIT License
 
 - [RMBG](https://github.com/AbsoluteAI/RMBG) - AI 抠图模型
 - [ONNX Runtime](https://onnxruntime.ai/) - 高性能 AI 推理引擎
-- [Tauri](https://tauri.app/) - 跨平台桌面应用框架
+- [Electron](https://www.electronjs.org/) - 跨平台桌面应用框架
 - [React](https://react.dev/) - 前端 UI 框架
+- [FastAPI](https://fastapi.tiangolo.com/) - Python Web 框架

@@ -1,133 +1,122 @@
-import { invoke } from '@tauri-apps/api/core';
-import { open, save } from '@tauri-apps/plugin-dialog';
-import { getCurrentWindow } from '@tauri-apps/api/window';
-import { writeFile, readFile } from '@tauri-apps/plugin-fs';
-import { open as openShell } from '@tauri-apps/plugin-shell';
+declare global {
+  interface Window {
+    electronAPI?: {
+      selectImage: () => Promise<{path: string; data: string; name: string} | null>;
+      processImage: (imageData: string, filename: string) => Promise<string>;
+      saveImage: (imageData: string, defaultName?: string) => Promise<string | null>;
+      copyImageToClipboard: (imageData: string) => Promise<{success: boolean}>;
+      checkModelStatus: () => Promise<any>;
+      selectModel: () => Promise<{path: string; name: string} | null>;
+      loadCustomModel: (modelPath: string, modelId?: string) => Promise<any>;
+      windowMinimize: () => Promise<void>;
+      windowMaximize: () => Promise<void>;
+      windowClose: () => Promise<void>;
+    };
+  }
+}
+
+const BACKEND_URL = 'http://127.0.0.1:8765';
 
 export async function selectImage(): Promise<{path: string; data: string; name: string} | null> {
-  const selected = await open({
-    multiple: false,
-    filters: [{
-      name: '图片文件',
-      extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp']
-    }]
-  });
-  
-  if (!selected) return null;
-  
-  const path = selected as string;
-  const name = path.split('/').pop() || 'image';
-  
-  const data = await readFile(path);
-  // Convert Uint8Array to base64 without spread operator (avoid stack overflow for large files)
-  let binary = '';
-  const len = data.length;
-  const chunkSize = 65536; // Process in chunks to avoid stack overflow
-  for (let i = 0; i < len; i += chunkSize) {
-    const chunk = data.subarray(i, i + chunkSize);
-    binary += String.fromCharCode.apply(null, Array.from(chunk));
+  if (!window.electronAPI) {
+    throw new Error('Electron API not available');
   }
-  const base64 = btoa(binary);
-  
-  // 根据文件扩展名确定 MIME 类型
-  const ext = path.split('.').pop()?.toLowerCase() || '';
-  const mimeTypeMap: Record<string, string> = {
-    'png': 'image/png',
-    'jpg': 'image/jpeg',
-    'jpeg': 'image/jpeg',
-    'webp': 'image/webp',
-    'gif': 'image/gif',
-    'bmp': 'image/bmp'
-  };
-  const mimeType = mimeTypeMap[ext] || 'image/png';
-  
-  return { path, data: `data:${mimeType};base64,${base64}`, name };
+  return window.electronAPI.selectImage();
 }
 
 export async function saveImage(imageData: string, defaultName?: string): Promise<string | null> {
-  const filePath = await save({
-    defaultPath: defaultName || 'removed_bg.png',
-    filters: [{
-      name: 'Images',
-      extensions: ['png']
-    }]
-  });
-  
-  if (!filePath) return null;
-  
-  const base64Data = imageData.replace(/^data:image\/\w+;base64,/, '');
-  const binaryString = atob(base64Data);
-  const bytes = new Uint8Array(binaryString.length);
-  for (let i = 0; i < binaryString.length; i++) {
-    bytes[i] = binaryString.charCodeAt(i);
+  if (!window.electronAPI) {
+    throw new Error('Electron API not available');
   }
-  
-  await writeFile(filePath, bytes);
-  
-  return filePath;
+  return window.electronAPI.saveImage(imageData, defaultName);
+}
+
+export async function copyImageToClipboard(imageData: string): Promise<void> {
+  if (!window.electronAPI) {
+    throw new Error('Electron API not available');
+  }
+  await window.electronAPI.copyImageToClipboard(imageData);
 }
 
 export async function selectModel(): Promise<{path: string; name: string; size: number} | null> {
-  const selected = await open({
-    multiple: false,
-    filters: [{
-      name: 'AI Models',
-      extensions: ['onnx', 'safetensors']
-    }]
-  });
-  
-  if (!selected) return null;
-  
-  const path = selected as string;
-  const name = path.split('/').pop() || 'model';
-  
-  // Get file size
-  try {
-    const fileData = await readFile(path);
-    return { path, name, size: fileData.length };
-  } catch (e) {
-    // If can't read file size, return 0
-    return { path, name, size: 0 };
+  if (!window.electronAPI) {
+    throw new Error('Electron API not available');
   }
+  const result = await window.electronAPI.selectModel();
+  if (!result) return null;
+  return { ...result, size: 0 };
 }
 
 export async function listFixedModels(): Promise<any> {
-  return await invoke('list_fixed_models');
+  const response = await fetch(`${BACKEND_URL}/models/fixed`);
+  return response.json();
 }
 
 export async function loadFixedModel(modelId: string): Promise<any> {
-  return await invoke('load_fixed_model', { modelId });
+  const response = await fetch(`${BACKEND_URL}/models/load/${modelId}`, { method: 'POST' });
+  return response.json();
 }
 
 export async function loadCustomModel(modelPath: string, modelId: string): Promise<any> {
-  return await invoke('load_custom_model', { modelPath, modelId });
+  if (window.electronAPI) {
+    return window.electronAPI.loadCustomModel(modelPath, modelId);
+  }
+  
+  const response = await fetch(`${BACKEND_URL}/models/load-custom`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path: modelPath, model_id: modelId })
+  });
+  return response.json();
 }
 
 export async function processImageWithModel(imageBase64: string): Promise<any> {
-  return await invoke('process_image', { request: { image: imageBase64 } });
+  const response = await fetch(`${BACKEND_URL}/process`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ image: imageBase64 })
+  });
+  
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(error);
+  }
+  
+  const blob = await response.blob();
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const base64 = reader.result as string;
+      resolve({ success: true, image: base64 });
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
 }
 
 export async function openExternal(url: string): Promise<void> {
-  await openShell(url);
+  window.open(url, '_blank');
 }
 
 export async function healthCheck(): Promise<any> {
-  return await invoke('health_check');
+  const response = await fetch(`${BACKEND_URL}/health`);
+  return response.json();
 }
 
 export function windowMinimize() {
-  getCurrentWindow().minimize();
+  if (window.electronAPI) {
+    window.electronAPI.windowMinimize();
+  }
 }
 
 export async function windowMaximize() {
-  const win = getCurrentWindow();
-  if (await win.isMaximized()) {
-    await win.unmaximize();
-  } else {
-    await win.maximize();
+  if (window.electronAPI) {
+    await window.electronAPI.windowMaximize();
   }
 }
 
 export function windowClose() {
-  getCurrentWindow().close();
+  if (window.electronAPI) {
+    window.electronAPI.windowClose();
+  }
 }

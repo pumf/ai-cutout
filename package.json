@@ -1,6 +1,6 @@
 {
   "name": "xiaofei-background-remover",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "description": "AI背景去除工具 - 使用本地RMBG模型",
   "main": "dist/main/main.js",
   "author": "小飞",
@@ -13,27 +13,17 @@
     "build:renderer": "vite build",
     "copy-images": "cp resource/qrcode.jpg resource/grcode.jpg dist/renderer/",
     "build:electron": "tsc -p tsconfig.main.json",
-    "package": "npm run build && electron-builder --mac",
-    "package:tauri": "npm run build:renderer && npx tauri build",
-    "start": "electron .",
-    "tauri": "tauri"
+    "package": "npm run build && electron-builder --mac --win --linux",
+    "package:mac": "npm run build && electron-builder --mac",
+    "package:win": "npm run build && electron-builder --win",
+    "start": "electron ."
   },
   "dependencies": {
-    "@tauri-apps/api": "^2.10.1",
-    "@tauri-apps/plugin-clipboard-manager": "^2.3.2",
-    "@tauri-apps/plugin-dialog": "^2.7.0",
-    "@tauri-apps/plugin-fs": "^2.5.0",
-    "@tauri-apps/plugin-http": "^2.5.8",
-    "@tauri-apps/plugin-shell": "^2.3.5",
-    "cors": "^2.8.6",
-    "express": "^5.2.1",
     "omggif": "^1.0.10",
-    "onnxruntime-node": "^1.24.3",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2.0.0",
     "@types/node": "^20.10.0",
     "@types/react": "^18.2.0",
     "@types/react-dom": "^18.2.0",
@@ -42,7 +32,7 @@
     "electron": "^28.3.1",
     "electron-builder": "^24.9.0",
     "typescript": "^5.3.0",
-    "vite": "^5.0.0"
+    "vite": "^5.4.21"
   },
   "build": {
     "appId": "com.xiaofei.background-remover",
@@ -66,8 +56,8 @@
         "to": "venv"
       },
       {
-        "from": "dist/renderer",
-        "to": "dist/renderer"
+        "from": "model_files",
+        "to": "model_files"
       },
       {
         "from": "resource/qrcode.jpg",
@@ -84,7 +74,10 @@
     ],
     "mac": {
       "target": [
-        "dmg"
+        {
+          "target": "dmg",
+          "arch": ["arm64"]
+        }
       ],
       "category": "public.app-category.graphics-design",
       "icon": "resource/logo.png"
@@ -99,7 +92,7 @@
       "target": [
         "AppImage"
       ],
-      "icon": "logo.png"
+      "icon": "resource/logo.png"
     },
     "asar": {
       "smartUnpack": false

@@ -1,8 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import './App.css';
 import { GifReader, GifWriter } from 'omggif';
-import { listFixedModels, loadFixedModel, loadCustomModel, processImageWithModel, selectModel, openExternal, saveImage, selectImage } from '../tauri';
-import { invoke } from '@tauri-apps/api/core';
+import { listFixedModels, loadFixedModel, loadCustomModel, processImageWithModel, selectModel, openExternal, saveImage, selectImage, copyImageToClipboard } from '../tauri';
 import { TitleBar } from './components/TitleBar';
 
 function App() {
@@ -15,6 +14,8 @@ function App() {
   const [showModelSelector, setShowModelSelector] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [isLoadingModel, setIsLoadingModel] = useState(false);
+  const [loadingModelId, setLoadingModelId] = useState<string | null>(null);
+  const [errorModelId, setErrorModelId] = useState<string | null>(null);
   const [dragActive, setDragActive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -131,11 +132,14 @@ function App() {
     scaleRef.current = s;
     translateXRef.current = tx;
     translateYRef.current = ty;
-    
+
+    // Sync scale state for UI updates (zoom badge)
+    setScale(s);
+
     if (rafRef.current) {
       cancelAnimationFrame(rafRef.current);
     }
-    
+
     rafRef.current = requestAnimationFrame(() => {
       const transform = `translate(calc(-50% + ${tx}px), calc(-50% + ${ty}px)) scale(${s})`;
       if (originalTransformRef.current) {
@@ -249,6 +253,8 @@ function App() {
   };
 
   const handleLoadFixedModel = async (modelId: string) => {
+    setLoadingModelId(modelId);
+    setErrorModelId(null);
     setIsLoadingModel(true);
     try {
       const data = await loadFixedModel(modelId);
@@ -260,13 +266,20 @@ function App() {
         loadAvailableModels();
         showToast(`模型 ${data.model.display_name || data.model.name} 加载成功`, 'success');
       } else {
+        setErrorModelId(modelId);
         showToast('加载模型失败: ' + (data.error || '未知错误'), 'error');
+        // Clear error after 3 seconds
+        setTimeout(() => setErrorModelId(null), 3000);
       }
     } catch (e) {
       console.error('Failed to load model:', e);
+      setErrorModelId(modelId);
       showToast('加载模型失败', 'error');
+      // Clear error after 3 seconds
+      setTimeout(() => setErrorModelId(null), 3000);
     } finally {
       setIsLoadingModel(false);
+      setLoadingModelId(null);
     }
   };
 
@@ -346,26 +359,12 @@ function App() {
 
   // Listen for auto-load completion
   useEffect(() => {
-    let unlisten: (() => void) | undefined;
-    
-    const setupListener = async () => {
-      try {
-        const { listen } = await import('@tauri-apps/api/event');
-        unlisten = await listen('model-auto-loaded', () => {
-          // Refresh model list when auto-load completes
-          loadAvailableModels();
-        });
-      } catch (e) {
-        console.error('Failed to setup event listener:', e);
-      }
-    };
-    
-    setupListener();
+    const timer = setInterval(() => {
+      loadAvailableModels();
+    }, 5000);
     
     return () => {
-      if (unlisten) {
-        unlisten();
-      }
+      clearInterval(timer);
     };
   }, []);
 
@@ -983,8 +982,16 @@ function App() {
   }, []);
 
   const handleImageLoad = () => {
-    // Image loaded callback - scaling is already handled in file selection
-    // This function is kept for compatibility but auto-fit is done earlier
+    // Image loaded callback - ensure transform is applied after image loads
+    // This handles cases where the image loads before refs are ready
+    if (originalTransformRef.current && scaleRef.current) {
+      const transform = `translate(calc(-50% + ${translateXRef.current}px), calc(-50% + ${translateYRef.current}px)) scale(${scaleRef.current})`;
+      originalTransformRef.current.style.transform = transform;
+    }
+    if (resultTransformRef.current && scaleRef.current) {
+      const transform = `translate(calc(-50% + ${translateXRef.current}px), calc(-50% + ${translateYRef.current}px)) scale(${scaleRef.current})`;
+      resultTransformRef.current.style.transform = transform;
+    }
   };
 
   // Initialize canvases when processed image changes
@@ -1209,23 +1216,36 @@ function App() {
     const img = new Image();
     img.onload = () => {
       const panel = originalPanelRef.current;
-      if (panel) {
+      const imgW = img.naturalWidth;
+      const imgH = img.naturalHeight;
+      
+      let finalScale = 1;
+      
+      if (panel && panel.clientWidth > 0 && panel.clientHeight > 0) {
         const panelW = panel.clientWidth;
         const panelH = panel.clientHeight;
-        const imgW = img.naturalWidth;
-        const imgH = img.naturalHeight;
         
         // Calculate scale to fit image to panel (cover mode)
         const scaleX = (panelW - 40) / imgW;
         const scaleY = (panelH - 40) / imgH;
         const newScale = Math.max(scaleX, scaleY);
         
-        const finalScale = Math.min(newScale, 1);
-        setScale(finalScale);
-        setTranslateX(0);
-        setTranslateY(0);
-        updateTransform(finalScale, 0, 0);
+        finalScale = Math.min(newScale, 1);
+      } else {
+        // Fallback: calculate scale based on a reasonable default panel size
+        // or use 1 if image is smaller than typical panel
+        const defaultPanelW = 800;
+        const defaultPanelH = 600;
+        const scaleX = (defaultPanelW - 40) / imgW;
+        const scaleY = (defaultPanelH - 40) / imgH;
+        finalScale = Math.min(Math.max(scaleX, scaleY), 1);
       }
+      
+      setScale(finalScale);
+      setTranslateX(0);
+      setTranslateY(0);
+      updateTransform(finalScale, 0, 0);
+      
       showToast('图片已加载，准备开始AI抠图', 'success');
     };
     img.src = imageUrl;
@@ -1777,8 +1797,8 @@ function App() {
       reader.readAsDataURL(imageBlob);
       const base64Data = await base64Promise;
       
-      // Use Rust backend to copy to clipboard
-      await invoke('copy_image_to_clipboard', { imageData: base64Data });
+      // Use Electron backend to copy to clipboard
+      await copyImageToClipboard(base64Data);
       showToast('已复制到剪贴板', 'success');
     } catch (err) {
       console.error('Failed to copy to clipboard:', err);
@@ -1788,13 +1808,12 @@ function App() {
 
   return (
     <div className="app">
-      <TitleBar 
+      <TitleBar
         currentModel={currentModel}
         modelStatus={modelStatus}
         onShowModelSelector={() => setShowModelSelector(true)}
         onShowHelp={() => setShowHelp(true)}
       />
-
       {showModelSelector && (
         <div className="modal-overlay" onClick={() => setShowModelSelector(false)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
@@ -1809,58 +1828,116 @@ function App() {
                 </div>
               )}
               <div className="model-list">
-                {availableModels.map((m) => (
-                  <div 
-                    key={m.id} 
-                    className={`model-item ${currentModel?.path === m.path ? 'active' : ''}`}
-                  >
-                    <div className="model-info">
-                      <span className="model-name">{m.display_name}</span>
-                      <span className="model-type">{m.type?.toUpperCase()}</span>
+                {availableModels.map((m) => {
+                  // Determine model status - use path for comparison (more reliable)
+                  const isLoaded = currentModel?.path === m.path || currentModel?.name === m.name;
+                  const isLoading = loadingModelId === m.id;
+                  const isError = errorModelId === m.id;
+
+                  return (
+                    <div
+                      key={m.id}
+                      className={`model-item ${isLoaded ? 'loaded' : ''} ${isLoading ? 'loading' : ''} ${isError ? 'error' : ''} ${!m.exists ? 'missing' : ''}`}
+                    >
+                      <div className="model-info">
+                        <div className="model-name-wrapper">
+                          <span className="model-name">{m.display_name}</span>
+                          {/* Status indicator dot */}
+                          {isLoaded && (
+                            <span className="model-status-indicator loaded" title="当前已加载">
+                              <span className="indicator-dot" />
+                              <span className="indicator-pulse" />
+                            </span>
+                          )}
+                          {isLoading && (
+                            <span className="model-status-indicator loading" title="加载中...">
+                              <span className="indicator-spinner" />
+                            </span>
+                          )}
+                          {isError && (
+                            <span className="model-status-indicator error" title="加载失败">
+                              <span className="indicator-dot" />
+                            </span>
+                          )}
+                          {!m.exists && !isLoaded && !isLoading && !isError && (
+                            <span className="model-status-indicator missing" title="未下载">
+                              <span className="indicator-dot" />
+                            </span>
+                          )}
+                        </div>
+                        <span className="model-type">{m.type?.toUpperCase()}</span>
+                      </div>
+                      <div className="model-actions">
+                        {/* 显示模型大小 */}
+                        <span className="model-size">{m.size_mb > 0 ? `${m.size_mb} MB` : '未下载'}</span>
+
+                        {m.exists ? (
+                          /* 模型存在时显示加载状态 */
+                          <>
+                            {isLoaded ? (
+                              <span className="model-status-badge loaded">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                                  <polyline points="20 6 9 17 4 12" />
+                                </svg>
+                                已加载
+                              </span>
+                            ) : isLoading ? (
+                              <span className="model-status-badge loading">
+                                <span className="badge-spinner" />
+                                加载中...
+                              </span>
+                            ) : isError ? (
+                              <span className="model-status-badge error">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                                  <line x1="18" y1="6" x2="6" y2="18" />
+                                  <line x1="6" y1="6" x2="18" y2="18" />
+                                </svg>
+                                失败
+                              </span>
+                            ) : (
+                              <button className="btn btn-small" onClick={() => handleLoadFixedModel(m.id)}>
+                                加载
+                              </button>
+                            )}
+                            {/* 2.0 模型始终显示下载按钮 */}
+                            {m.download_url && !isLoaded && (
+                              <button
+                                className="btn btn-small btn-link"
+                                onClick={() => handleDownloadModel(m.download_url!, m.name)}
+                              >
+                                下载
+                              </button>
+                            )}
+                          </>
+                        ) : (
+                          /* 模型不存在时显示选择和下载 */
+                          <>
+                            {isLoading ? (
+                              <span className="model-status-badge loading">
+                                <span className="badge-spinner" />
+                                加载中...
+                              </span>
+                            ) : isError ? (
+                              <span className="model-status-badge error">加载失败</span>
+                            ) : (
+                              <button className="btn btn-small" onClick={() => selectCustomModel(m.id)}>
+                                选择文件
+                              </button>
+                            )}
+                            {m.download_url && (
+                              <button
+                                className="btn btn-small btn-link"
+                                onClick={() => handleDownloadModel(m.download_url!, m.name)}
+                              >
+                                下载
+                              </button>
+                            )}
+                          </>
+                        )}
+                      </div>
                     </div>
-                    <div className="model-actions">
-                      {/* 显示模型大小 */}
-                      <span className="model-size">{m.size_mb > 0 ? `${m.size_mb} MB` : '未下载'}</span>
-                      
-                      {m.exists ? (
-                        /* 模型存在时显示加载状态 */
-                        <>
-                          {currentModel?.name === m.name ? (
-                            <span className="model-loaded-badge">已加载</span>
-                          ) : (
-                            <button className="btn btn-small" onClick={() => handleLoadFixedModel(m.id)}>
-                              加载
-                            </button>
-                          )}
-                          {/* 2.0 模型始终显示下载按钮 */}
-                          {m.download_url && (
-                            <button 
-                              className="btn btn-small btn-link" 
-                              onClick={() => handleDownloadModel(m.download_url!, m.name)}
-                            >
-                              快捷下载
-                            </button>
-                          )}
-                        </>
-                      ) : (
-                        /* 模型不存在时显示选择和下载 */
-                        <>
-                          <button className="btn btn-small" onClick={() => selectCustomModel(m.id)}>
-                            选择文件
-                          </button>
-                          {m.download_url && (
-                            <button 
-                              className="btn btn-small btn-link" 
-                              onClick={() => handleDownloadModel(m.download_url!, m.name)}
-                            >
-                              快捷下载
-                            </button>
-                          )}
-                        </>
-                      )}
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
             {isLoadingModel && <div className="modal-loading">加载模型中...</div>}
@@ -1880,8 +1957,8 @@ function App() {
                 <div className="help-intro-icon">
                   <img src="./logo.png" alt="logo" />
                 </div>
-                <h2>小飞AI抠图</h2>
-                <p>完全本地运行的 AI 智能抠图工具，安装包仅 170MB，保护您的隐私。</p>
+                <h2>小飞AI抠图 v1.0.2</h2>
+                <p>完全本地运行的 AI 智能抠图工具，基于 Electron 构建，保护您的隐私。</p>
               </div>
 
               <div className="help-features">
@@ -1900,6 +1977,13 @@ function App() {
                   </div>
                 </div>
                 <div className="feature-item">
+                  <div className="feature-icon">✏️</div>
+                  <div className="feature-text">
+                    <h4>擦除修补</h4>
+                    <p>手动擦除或修补抠图结果，精细控制</p>
+                  </div>
+                </div>
+                <div className="feature-item">
                   <div className="feature-icon">🎨</div>
                   <div className="feature-text">
                     <h4>背景替换</h4>
@@ -1913,6 +1997,13 @@ function App() {
                     <p>逐帧处理 GIF 动图，保留动画效果</p>
                   </div>
                 </div>
+                <div className="feature-item">
+                  <div className="feature-icon">⌨️</div>
+                  <div className="feature-text">
+                    <h4>快捷键支持</h4>
+                    <p>丰富的键盘快捷键，提升工作效率</p>
+                  </div>
+                </div>
               </div>
 
               <div className="help-guide">
@@ -1922,21 +2013,28 @@ function App() {
                     <div className="step-number">1</div>
                     <div className="step-content">
                       <h4>选择图片</h4>
-                      <p>点击"选择"按钮或拖拽图片到窗口，支持 PNG、JPG、WebP、GIF 格式</p>
+                      <p>点击"选择"按钮或拖拽图片到窗口，支持 PNG、JPG、WebP、GIF 格式。也可使用快捷键 ⌘+O 或 Ctrl+V 粘贴图片</p>
                     </div>
                   </div>
                   <div className="guide-step">
                     <div className="step-number">2</div>
                     <div className="step-content">
                       <h4>AI 抠图</h4>
-                      <p>点击"抠图"按钮，AI 自动去除背景，首次加载约 1-2 秒</p>
+                      <p>点击"抠图"按钮或使用 ⌘+P 快捷键，AI 自动去除背景，首次加载约 1-2 秒</p>
                     </div>
                   </div>
                   <div className="guide-step">
                     <div className="step-number">3</div>
                     <div className="step-content">
-                      <h4>编辑与导出</h4>
-                      <p>替换背景、擦除修补，完成后导出或复制到剪贴板</p>
+                      <h4>精细编辑（可选）</h4>
+                      <p>使用擦除/修补工具手动调整抠图结果，或按 ⌘+B 切换背景颜色/图片</p>
+                    </div>
+                  </div>
+                  <div className="guide-step">
+                    <div className="step-number">4</div>
+                    <div className="step-content">
+                      <h4>导出结果</h4>
+                      <p>点击"导出"或使用 ⌘+S 保存图片，也可使用 ⌘+C 复制到剪贴板</p>
                     </div>
                   </div>
                 </div>
@@ -1948,6 +2046,10 @@ function App() {
                   <div className="shortcut-item">
                     <kbd>⌘</kbd> + <kbd>O</kbd>
                     <span>选择图片</span>
+                  </div>
+                  <div className="shortcut-item">
+                    <kbd>⌘</kbd> + <kbd>P</kbd>
+                    <span>AI 抠图</span>
                   </div>
                   <div className="shortcut-item">
                     <kbd>⌘</kbd> + <kbd>S</kbd>
@@ -1965,6 +2067,18 @@ function App() {
                     <kbd>⌘</kbd> + <kbd>Z</kbd>
                     <span>撤回操作</span>
                   </div>
+                  <div className="shortcut-item">
+                    <kbd>⌘</kbd> + <kbd>B</kbd>
+                    <span>切换背景</span>
+                  </div>
+                  <div className="shortcut-item">
+                    <kbd>?</kbd>
+                    <span>显示快捷键帮助</span>
+                  </div>
+                  <div className="shortcut-item">
+                    <kbd>Esc</kbd>
+                    <span>关闭弹窗</span>
+                  </div>
                 </div>
               </div>
 
@@ -1972,19 +2086,27 @@ function App() {
                 <h3>常见问题</h3>
                 <div className="faq-item">
                   <p className="faq-q">Q: 首次运行需要联网吗？</p>
-                  <p className="faq-a">A: 不需要。软件完全本地运行，内置 RMBG-1.4 模型。</p>
+                  <p className="faq-a">A: 不需要。软件完全本地运行，内置 RMBG-1.4 模型，无需联网即可使用。</p>
+                </div>
+                <div className="faq-item">
+                  <p className="faq-q">Q: macOS 提示"无法验证开发者"怎么办？</p>
+                  <p className="faq-a">A: 前往 系统设置 &gt; 隐私与安全，点击"仍要打开"允许运行。这是 macOS 对未签名应用的安全提示。</p>
                 </div>
                 <div className="faq-item">
                   <p className="faq-q">Q: 如何下载 RMBG-2.0 模型？</p>
-                  <p className="faq-a">A: 点击顶部模型名称打开列表，找到 RMBG-2.0 点击"快捷下载"，将 model.onnx 放到 model_files/2.0/ 文件夹。</p>
+                  <p className="faq-a">A: 点击顶部模型名称打开列表，找到 RMBG-2.0 点击"快捷下载"，下载后将 model.onnx 放到应用目录的 model_files/2.0/ 文件夹中。</p>
                 </div>
                 <div className="faq-item">
                   <p className="faq-q">Q: 支持哪些图片格式？</p>
-                  <p className="faq-a">A: 支持 PNG、JPG/JPEG、WebP、GIF、BMP 格式。</p>
+                  <p className="faq-a">A: 支持 PNG、JPG/JPEG、WebP、GIF、BMP 格式。GIF 动图会逐帧处理保留动画效果。</p>
                 </div>
                 <div className="faq-item">
                   <p className="faq-q">Q: 处理速度慢怎么办？</p>
-                  <p className="faq-a">A: 速度取决于电脑配置。首次加载模型需要时间，后续处理更快。推荐使用 M 系列芯片的 Mac。</p>
+                  <p className="faq-a">A: 处理速度取决于电脑配置。首次加载模型需要 1-2 秒，后续处理会更快。推荐使用 M 系列芯片的 Mac 获得最佳性能。</p>
+                </div>
+                <div className="faq-item">
+                  <p className="faq-q">Q: 复制到剪贴板失败怎么办？</p>
+                  <p className="faq-a">A: 如果复制失败，可以使用"导出"功能将图片保存到本地，然后手动复制。某些应用可能不支持直接粘贴图片。</p>
                 </div>
               </div>
 
@@ -1998,7 +2120,7 @@ function App() {
                   rel="noopener noreferrer"
                   onClick={(e) => {
                     e.preventDefault();
-                    import('@tauri-apps/plugin-shell').then(({ open }) => open('https://github.com/pumf/ai-cutout'));
+                    window.open('https://github.com/pumf/ai-cutout', '_blank');
                   }}
                 >
                   <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
@@ -2284,6 +2406,8 @@ function App() {
               )}
             </div>
           )}
+
+
         </div>
 
         <div className={`workspace ${isOriginalPanelCollapsed ? 'original-collapsed' : ''}`}>
@@ -2558,6 +2682,10 @@ function App() {
                 <div className="shortcut-item">
                   <kbd>Ctrl</kbd> + <kbd>C</kbd>
                   <span>复制到剪贴板</span>
+                </div>
+                <div className="shortcut-item">
+                  <kbd>Ctrl</kbd> + <kbd>V</kbd>
+                  <span>粘贴图片</span>
                 </div>
                 <div className="shortcut-item">
                   <kbd>Ctrl</kbd> + <kbd>Z</kbd>

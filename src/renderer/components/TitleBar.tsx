@@ -1,5 +1,3 @@
-import { getCurrentWindow } from '@tauri-apps/api/window';
-
 interface TitleBarProps {
   currentModel: any;
   modelStatus: 'loading' | 'ready' | 'error';
@@ -8,71 +6,19 @@ interface TitleBarProps {
 }
 
 export function TitleBar({ currentModel, modelStatus, onShowModelSelector, onShowHelp }: TitleBarProps) {
-  const handleMouseDown = async (e: React.MouseEvent) => {
-    if (e.button !== 0) return;
-    if ((e.target as HTMLElement).closest('button')) return;
-    
-    try {
-      const window = getCurrentWindow();
-      await window.startDragging();
-    } catch (err) {
-      console.error('Drag failed:', err);
-    }
-  };
-
-  const handleDoubleClick = async () => {
-    try {
-      const window = getCurrentWindow();
-      await window.toggleMaximize();
-    } catch (err) {
-      console.error('Toggle maximize failed:', err);
-    }
-  };
-
-  const handleClose = async () => {
-    const window = getCurrentWindow();
-    await window.close();
-  };
-
-  const handleMinimize = async () => {
-    const window = getCurrentWindow();
-    await window.minimize();
-  };
-
-  const handleMaximize = async () => {
-    const window = getCurrentWindow();
-    await window.toggleMaximize();
-  };
-
   return (
-    <div className="titlebar" onMouseDown={handleMouseDown} onDoubleClick={handleDoubleClick}>
+    <div className="titlebar">
       <div className="titlebar-content">
-        {/* Window Controls */}
-        <div className="window-controls">
-          <button className="window-btn close" onClick={handleClose} title="关闭">
-            <svg viewBox="0 0 12 12" width="8" height="8">
-              <path d="M6.94 6l2.87 2.87a.75.75 0 1 1-1.06 1.06L5.88 7.06 3 9.94a.75.75 0 0 1-1.06-1.06L4.82 6 1.94 3.13a.75.75 0 0 1 1.06-1.06L5.88 4.94 8.74 2.07a.75.75 0 1 1 1.06 1.06L6.94 6z"/>
-            </svg>
-          </button>
-          <button className="window-btn minimize" onClick={handleMinimize} title="最小化">
-            <svg viewBox="0 0 12 12" width="8" height="8">
-              <path d="M2 6h8v1H2z"/>
-            </svg>
-          </button>
-          <button className="window-btn maximize" onClick={handleMaximize} title="最大化">
-            <svg viewBox="0 0 12 12" width="8" height="8">
-              <path d="M6 2h4v4H9V3H6V2zM2 6V2h4v1H3v3H2zM6 10H2V6h1v3h3v1zM10 6v4H6V9h3V6h1z"/>
-            </svg>
-          </button>
-        </div>
-
-        {/* Center - Logo + Title */}
+        {/* 左侧：留出空间给 macOS 原生红绿灯按钮 */}
+        <div className="titlebar-left" style={{ width: '80px', flexShrink: 0 }} />
+        
+        {/* 中间：标题 */}
         <div className="titlebar-center-group">
           <img className="titlebar-logo" src="./logo.png" alt="logo" />
           <span className="titlebar-title-text">小飞AI抠图</span>
         </div>
         
-        {/* Right - Model + Help */}
+        {/* 右侧：模型选择和帮助按钮 */}
         <div className="titlebar-right">
           <button 
             className="titlebar-model-btn" 
