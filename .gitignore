@@ -16,3 +16,4 @@ release/
 venv-minimal/
 logs/
 *.log
+test-*.js

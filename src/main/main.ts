@@ -160,32 +160,41 @@ async function startPythonBackend(): Promise<void> {
       env: { ...process.env, PYTHONPATH: process.resourcesPath }
     });
 
+    // Function to check if server is ready
+    const checkServerReady = (output: string) => {
+      if (output.includes('Uvicorn running') || output.includes('Application startup complete')) {
+        if (!isStarted) {
+          isStarted = true;
+          console.log('Python backend is ready!');
+          
+          // Try to read the port file
+          setTimeout(() => {
+            if (fs.existsSync(portFile)) {
+              const port = parseInt(fs.readFileSync(portFile, 'utf8').trim(), 10);
+              if (!isNaN(port)) {
+                backendPort = port;
+                console.log(`Backend started on port ${backendPort}`);
+              }
+            }
+            resolve();
+          }, 500);
+        }
+      }
+    };
+
     pythonProcess.stdout.on('data', (data: any) => {
       const output = data.toString();
       console.log('[Python Backend]:', output);
-
-      // Check if server is ready
-      if (output.includes('Uvicorn running') || output.includes('Application startup complete')) {
-        isStarted = true;
-        
-        // Try to read the port file
-        setTimeout(() => {
-          if (fs.existsSync(portFile)) {
-            const port = parseInt(fs.readFileSync(portFile, 'utf8').trim(), 10);
-            if (!isNaN(port)) {
-              backendPort = port;
-              console.log(`Backend started on port ${backendPort}`);
-            }
-          }
-          resolve();
-        }, 500);
-      }
+      checkServerReady(output);
     });
 
     pythonProcess.stderr.on('data', (data: any) => {
       const output = data.toString();
       console.log('[Python Error]:', output);
       errorOutput += output;
+      
+      // Also check stderr for server ready messages (some Python logs go to stderr)
+      checkServerReady(output);
 
       // Check for architecture mismatch error (macOS/Linux)
       if (output.includes('bad CPU type') || output.includes('Rosetta')) {
@@ -220,15 +229,15 @@ async function startPythonBackend(): Promise<void> {
       }
     });
 
-    // Timeout after 15 seconds
+    // Timeout after 30 seconds (increased from 15)
     setTimeout(() => {
       if (!isStarted) {
         if (pythonProcess) {
           pythonProcess.kill();
         }
-        reject(new Error('Python backend failed to start within 15 seconds'));
+        reject(new Error('Python backend failed to start within 30 seconds'));
       }
-    }, 15000);
+    }, 30000);
   });
 }
 
@@ -272,47 +281,8 @@ async function createWindow() {
       console.log('Python backend started successfully');
     } catch (error) {
       console.error('Failed to start Python backend:', error);
-
-      // Build platform-specific error message
-      const platform = process.platform;
-      const arch = process.arch;
-      let helpText = '';
-
-      if (platform === 'win32') {
-        helpText =
-          `Windows 用户:\n` +
-          `- 从 https://python.org 下载并安装 Python 3.9+（安装时勾选"Add to PATH"）\n` +
-          `- 以管理员身份运行此应用\n` +
-          `- 检查杀毒软件是否阻止了应用运行\n` +
-          `- 确保已安装 Visual C++ Redistributable`;
-      } else if (platform === 'darwin') {
-        helpText =
-          `macOS 用户:\n` +
-          `- Intel Mac: 确保系统已安装 Python 3.9+（brew install python）\n` +
-          `- Apple Silicon Mac: 使用 arm64 版本的应用\n` +
-          `- 尝试在终端运行: /usr/bin/python3 --version`;
-      } else {
-        helpText =
-          `Linux 用户:\n` +
-          `- 安装 Python 3.9+: sudo apt install python3 python3-pip\n` +
-          `- 安装依赖: pip3 install -r requirements.txt`;
-      }
-
-      // Show error dialog to user
-      if (mainWindow) {
-        dialog.showErrorBox(
-          '后端服务启动失败',
-          `无法启动 AI 处理服务。\n\n` +
-          `系统信息: ${platform} ${arch}\n\n` +
-          `可能的原因:\n` +
-          `1. 系统架构不兼容（当前架构: ${arch}）\n` +
-          `2. Python 环境未正确安装\n` +
-          `3. 端口 8765 被占用\n` +
-          `4. 缺少必要的依赖库\n\n` +
-          `错误信息:\n${error instanceof Error ? error.message : String(error)}\n\n` +
-          helpText
-        );
-      }
+      // Don't show error dialog, let the app continue
+      // The frontend will handle backend unavailability gracefully
     }
     const distPath = getDistPath();
     mainWindow.loadFile(path.join(distPath, 'index.html'));

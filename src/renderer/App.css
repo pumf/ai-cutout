@@ -1817,3 +1817,59 @@ body {
 .update-actions .btn-primary:hover {
   background: #059669;
 }
+
+/* Help page update check section */
+.help-update {
+  margin: 24px 0;
+  padding: 20px;
+  background: var(--bg-color);
+  border-radius: var(--radius-md);
+  text-align: center;
+}
+
+.help-update h3 {
+  margin: 0 0 12px 0;
+  font-size: 16px;
+  color: var(--text-primary);
+}
+
+.help-update p {
+  margin: 0 0 16px 0;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.help-update .btn {
+  padding: 10px 24px;
+  font-size: 14px;
+}
+
+/* Button outline style for reselect */
+.btn-outline {
+  background: transparent !important;
+  border: 1px solid var(--border-color) !important;
+  color: var(--text-secondary) !important;
+}
+
+.btn-outline:hover {
+  border-color: var(--primary-color) !important;
+  color: var(--primary-color) !important;
+  background: rgba(99, 102, 241, 0.05) !important;
+}
+
+/* Markdown rendering styles */
+.release-notes-content h4 {
+  margin: 12px 0 8px 0;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.release-notes-content strong {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.release-notes-content em {
+  font-style: italic;
+  color: var(--text-secondary);
+}

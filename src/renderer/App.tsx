@@ -344,7 +344,21 @@ function App() {
     }
   };
 
-  const handleDownloadModel = async (url: string, modelName: string) => {
+  const handleDownloadModel = async (url: string, modelName: string, displayName: string) => {
+    // 二次确认
+    const confirmed = window.confirm(
+      `即将打开浏览器下载模型：${displayName || modelName}\n\n` +
+      `下载说明：\n` +
+      `1. 点击下载按钮获取 model.onnx 文件\n` +
+      `2. 将文件放到应用目录的 model_files/${modelName}/ 文件夹中\n` +
+      `3. 返回应用点击"选择文件"加载模型\n\n` +
+      `是否继续？`
+    );
+    
+    if (!confirmed) {
+      return;
+    }
+    
     try {
       await openExternalUrl(url);
       showToast('正在打开下载页面...', 'info');
@@ -1955,11 +1969,21 @@ function App() {
                                 加载
                               </button>
                             )}
+                            {/* 重选文件按钮 - 对已加载模型也显示 */}
+                            {isLoaded && (
+                              <button 
+                                className="btn btn-small btn-outline" 
+                                onClick={() => selectCustomModel(m.id)}
+                                title="重新选择模型文件"
+                              >
+                                重选
+                              </button>
+                            )}
                             {/* 2.0 模型始终显示下载按钮 */}
                             {m.download_url && !isLoaded && (
                               <button
                                 className="btn btn-small btn-link"
-                                onClick={() => handleDownloadModel(m.download_url!, m.name)}
+                                onClick={() => handleDownloadModel(m.download_url!, m.name, m.display_name || m.name)}
                               >
                                 下载
                               </button>
@@ -1983,7 +2007,7 @@ function App() {
                             {m.download_url && (
                               <button
                                 className="btn btn-small btn-link"
-                                onClick={() => handleDownloadModel(m.download_url!, m.name)}
+                                onClick={() => handleDownloadModel(m.download_url!, m.name, m.display_name || m.name)}
                               >
                                 下载
                               </button>
@@ -2028,10 +2052,18 @@ function App() {
                 {updateInfo.releaseNotes && (
                   <div className="update-notes">
                     <h4>更新内容：</h4>
-                    <div className="release-notes-content">
-                      {updateInfo.releaseNotes.substring(0, 500)}
-                      {updateInfo.releaseNotes.length > 500 ? '...' : ''}
-                    </div>
+                    <div 
+                      className="release-notes-content"
+                      dangerouslySetInnerHTML={{ 
+                        __html: updateInfo.releaseNotes
+                          .replace(/#{1,6}\s(.+)/g, '<h4>$1</h4>')
+                          .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+                          .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+                          .replace(/- (.+)/g, '• $1')
+                          .replace(/\n/g, '<br/>')
+                          .substring(0, 2000)
+                      }}
+                    />
                   </div>
                 )}
               </div>
@@ -2211,6 +2243,34 @@ function App() {
                   <p className="faq-q">Q: 复制到剪贴板失败怎么办？</p>
                   <p className="faq-a">A: 如果复制失败，可以使用"导出"功能将图片保存到本地，然后手动复制。某些应用可能不支持直接粘贴图片。</p>
                 </div>
+              </div>
+
+              <div className="help-update">
+                <h3>检查更新</h3>
+                <p>当前版本：v{updateInfo?.currentVersion || '1.0.0'}</p>
+                <button 
+                  className="btn btn-primary" 
+                  onClick={async () => {
+                    showToast('正在检查更新...', 'info');
+                    try {
+                      const result = await checkForUpdates();
+                      console.log('Manual update check result:', result);
+                      
+                      if (result.hasUpdate) {
+                        setUpdateInfo(result);
+                        setShowUpdateDialog(true);
+                        showToast('发现新版本！', 'success');
+                      } else {
+                        showToast('当前已是最新版本', 'success');
+                      }
+                    } catch (error) {
+                      console.error('Failed to check for updates:', error);
+                      showToast('检查更新失败，请稍后重试', 'error');
+                    }
+                  }}
+                >
+                  检查更新
+                </button>
               </div>
 
               <div className="help-contact">
