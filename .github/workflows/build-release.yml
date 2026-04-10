@@ -13,7 +13,7 @@ on:
 
 jobs:
   build-macos-arm64:
-    runs-on: macos-14  # Apple Silicon runner
+    runs-on: macos-14
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -29,56 +29,34 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install Node dependencies
+      - name: Install dependencies
         run: npm ci
 
-      - name: Build frontend and electron
+      - name: Build
         run: npm run build
 
-      - name: Create ARM64 venv and install dependencies
+      - name: Setup Python venv
         run: |
           python3 -m venv venv-arm64
           source venv-arm64/bin/activate
-          pip install --upgrade pip setuptools wheel
-          # Install torch separately to avoid timeouts
+          pip install --upgrade pip
           pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
-          # Install remaining requirements (excluding torch/torchvision)
-          pip install numpy pillow fastapi uvicorn python-multipart python-json-logger
-          # Install onnxruntime for Apple Silicon
-          pip install onnxruntime-silicon
+          pip install numpy pillow fastapi uvicorn python-multipart python-json-logger onnxruntime-silicon
           deactivate
-        timeout-minutes: 15
 
-      - name: Update package.json for ARM64
-        run: |
-          node -e '
-          const fs = require("fs");
-          const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
-          pkg.build.mac.target = [{ target: "dmg", arch: ["arm64"] }];
-          pkg.build.extraResources = [
-            { from: "backend", to: "backend" },
-            { from: "venv-arm64", to: "venv-arm64" },
-            { from: "model_files", to: "model_files" },
-            { from: "resource/qrcode.jpg", to: "resource/qrcode.jpg" },
-            { from: "resource/grcode.jpg", to: "resource/grcode.jpg" },
-            { from: "resource/logo.png", to: "resource/logo.png" }
-          ];
-          fs.writeFileSync("package.json", JSON.stringify(pkg, null, 2));
-          '
-
-      - name: Build macOS ARM64
-        run: npx electron-builder --mac --arm64
+      - name: Build DMG
+        run: npx electron-builder --mac --arm64 --publish never
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload ARM64 artifact
+      - name: Upload
         uses: actions/upload-artifact@v4
         with:
           name: macos-arm64
           path: release/*.dmg
 
   build-macos-x64:
-    runs-on: macos-13  # Intel runner
+    runs-on: macos-13
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -94,47 +72,27 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install Node dependencies
+      - name: Install dependencies
         run: npm ci
 
-      - name: Build frontend and electron
+      - name: Build
         run: npm run build
 
-      - name: Create x64 venv and install dependencies
+      - name: Setup Python venv
         run: |
           python3 -m venv venv-x64
           source venv-x64/bin/activate
-          pip install --upgrade pip setuptools wheel
-          # Install torch separately for Intel
+          pip install --upgrade pip
           pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
-          # Install remaining requirements
           pip install numpy pillow onnxruntime fastapi uvicorn python-multipart python-json-logger
           deactivate
-        timeout-minutes: 15
 
-      - name: Update package.json for x64
-        run: |
-          node -e '
-          const fs = require("fs");
-          const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
-          pkg.build.mac.target = [{ target: "dmg", arch: ["x64"] }];
-          pkg.build.extraResources = [
-            { from: "backend", to: "backend" },
-            { from: "venv-x64", to: "venv-x64" },
-            { from: "model_files", to: "model_files" },
-            { from: "resource/qrcode.jpg", to: "resource/qrcode.jpg" },
-            { from: "resource/grcode.jpg", to: "resource/grcode.jpg" },
-            { from: "resource/logo.png", to: "resource/logo.png" }
-          ];
-          fs.writeFileSync("package.json", JSON.stringify(pkg, null, 2));
-          '
-
-      - name: Build macOS Intel
-        run: npx electron-builder --mac --x64
+      - name: Build DMG
+        run: npx electron-builder --mac --x64 --publish never
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload Intel artifact
+      - name: Upload
         uses: actions/upload-artifact@v4
         with:
           name: macos-x64
@@ -157,68 +115,43 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install Node dependencies
+      - name: Install dependencies
         run: npm ci
 
-      - name: Build frontend and electron
+      - name: Build
         run: npm run build
 
-      - name: Create Windows venv and install dependencies
-        shell: pwsh
+      - name: Setup Python venv
+        shell: cmd
         run: |
           python -m venv venv-x64
-          .\venv-x64\Scripts\Activate.ps1
-          pip install --upgrade pip setuptools wheel
-          # Install torch for Windows
+          .\venv-x64\Scripts\activate.bat
+          pip install --upgrade pip
           pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
-          # Install remaining requirements
           pip install numpy pillow onnxruntime fastapi uvicorn python-multipart python-json-logger
-          deactivate
-        timeout-minutes: 15
 
-      - name: Update package.json for Windows
-        shell: pwsh
-        run: |
-          $pkg = Get-Content package.json | ConvertFrom-Json
-          $pkg.build.extraResources = @(
-            @{ from = 'backend'; to = 'backend' },
-            @{ from = 'venv-x64'; to = 'venv-x64' },
-            @{ from = 'model_files'; to = 'model_files' },
-            @{ from = 'resource/qrcode.jpg'; to = 'resource/qrcode.jpg' },
-            @{ from = 'resource/grcode.jpg'; to = 'resource/grcode.jpg' },
-            @{ from = 'resource/logo.png'; to = 'resource/logo.png' }
-          )
-          $pkg | ConvertTo-Json -Depth 10 | Set-Content package.json
-
-      - name: Build Windows
-        run: npx electron-builder --win --x64
+      - name: Build Installer
+        run: npx electron-builder --win --x64 --publish never
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload Windows artifact
+      - name: Upload
         uses: actions/upload-artifact@v4
         with:
           name: windows-x64
           path: release/*.exe
 
-  create-release:
+  release:
     needs: [build-macos-arm64, build-macos-x64, build-windows]
     runs-on: ubuntu-latest
-    if: always() && needs.build-macos-arm64.result == 'success' && needs.build-macos-x64.result == 'success' && needs.build-windows.result == 'success'
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Download all artifacts
+      - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts
 
-      - name: List artifacts
-        run: ls -R artifacts
-
       - name: Get version
-        id: get_version
+        id: ver
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "VERSION=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
@@ -229,39 +162,10 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: v${{ steps.get_version.outputs.VERSION }}
-          name: 小飞AI抠图 v${{ steps.get_version.outputs.VERSION }}
-          body: |
-            ## 小飞AI抠图 v${{ steps.get_version.outputs.VERSION }}
-
-            ### 更新内容
-            - 优化模型列表加载状态显示
-            - 修复复制到剪贴板功能
-            - 修复导出图片默认文件名
-            - 修复缩放比例同步问题
-            - 添加跨平台支持（macOS Intel/ARM64、Windows）
-            - 改进错误处理和用户提示
-
-            ### 安装包
-
-            | 平台 | 文件 | 说明 |
-            |------|------|------|
-            | macOS Apple Silicon | 小飞AI抠图-${{ steps.get_version.outputs.VERSION }}-arm64.dmg | M1/M2/M3 Mac |
-            | macOS Intel | 小飞AI抠图-${{ steps.get_version.outputs.VERSION }}-x64.dmg | Intel Mac |
-            | Windows | 小飞AI抠图-Setup-${{ steps.get_version.outputs.VERSION }}.exe | Windows 10/11 |
-
-            ### 系统要求
-            - **macOS**: macOS 11.0 或更高版本
-            - **Windows**: Windows 10 或更高版本，需要安装 Python 3.9+
-
-            ### 注意事项
-            - macOS 用户可能需要在 系统设置 > 隐私与安全 中允许应用运行
-            - Windows 用户请确保已安装 Python 3.9+ 并添加到 PATH
-          draft: false
-          prerelease: false
+          tag_name: v${{ steps.ver.outputs.VERSION }}
+          name: 小飞AI抠图 v${{ steps.ver.outputs.VERSION }}
           files: |
-            artifacts/macos-arm64/*.dmg
-            artifacts/macos-x64/*.dmg
-            artifacts/windows-x64/*.exe
+            artifacts/**/*.dmg
+            artifacts/**/*.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
