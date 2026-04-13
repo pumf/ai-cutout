@@ -2264,7 +2264,7 @@ function App() {
 
               <div className="help-update">
                 <h3>检查更新</h3>
-                <p>当前版本：v{updateInfo?.currentVersion || '1.0.0'}</p>
+                <p>当前版本：v{updateInfo?.currentVersion || '1.0.2'}</p>
                 <button 
                   className="btn btn-primary" 
                   onClick={async () => {
