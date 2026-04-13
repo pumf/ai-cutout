@@ -407,16 +407,32 @@ function App() {
 
   // Check for updates on app start
   useEffect(() => {
-    const checkUpdates = async () => {
+    const checkUpdatesWithRetry = async (retryCount = 0) => {
       try {
+        // Wait for electronAPI to be ready
+        if (!window.electronAPI) {
+          console.log('Waiting for electronAPI to be ready...');
+          if (retryCount < 5) {
+            setTimeout(() => checkUpdatesWithRetry(retryCount + 1), 1000);
+          } else {
+            console.error('electronAPI not available after retries');
+          }
+          return;
+        }
+
         // Delay update check to not interfere with app startup
         await new Promise(resolve => setTimeout(resolve, 3000));
+        
+        console.log('Checking for updates...');
         const result = await checkForUpdates();
         console.log('Update check result:', result);
 
         if (result.hasUpdate) {
+          console.log(`New version available: ${result.latestVersion}`);
           setUpdateInfo(result);
           setShowUpdateDialog(true);
+        } else {
+          console.log('No updates available or already on latest version');
         }
       } catch (error) {
         console.error('Failed to check for updates:', error);
@@ -424,7 +440,8 @@ function App() {
       }
     };
 
-    checkUpdates();
+    // Start checking after a short delay to ensure app is fully loaded
+    setTimeout(() => checkUpdatesWithRetry(), 1000);
   }, []);
 
   // Listen for auto-load completion
