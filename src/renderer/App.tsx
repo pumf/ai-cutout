@@ -2276,6 +2276,7 @@ function App() {
                       if (result.hasUpdate) {
                         setUpdateInfo(result);
                         setShowUpdateDialog(true);
+                        setShowHelp(false); // 关闭帮助页面，避免遮挡更新弹窗
                         showToast('发现新版本！', 'success');
                       } else {
                         showToast('当前已是最新版本', 'success');
