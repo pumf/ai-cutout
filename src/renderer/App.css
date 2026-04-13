@@ -1717,6 +1717,11 @@ body {
   max-width: 480px;
 }
 
+.model-selector-modal {
+  max-width: 640px;
+  width: 90%;
+}
+
 .update-modal .modal-content {
   padding: 24px;
 }

@@ -1903,7 +1903,7 @@ function App() {
       />
       {showModelSelector && (
         <div className="modal-overlay" onClick={() => setShowModelSelector(false)}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
+          <div className="modal model-selector-modal" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <h3>选择 AI 模型</h3>
               <button className="modal-close" onClick={() => setShowModelSelector(false)}>×</button>
