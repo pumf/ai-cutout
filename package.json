@@ -1,6 +1,6 @@
 {
   "name": "xiaofei-background-remover",
-  "version": "1.0.0",
+  "version": "1.0.3",
   "description": "AI背景去除工具 - 使用本地RMBG模型",
   "main": "dist/main/main.js",
   "author": "小飞",
@@ -84,7 +84,7 @@
       "target": [
         {
           "target": "dmg",
-          "arch": ["arm64"]
+          "arch": ["arm64", "x64"]
         }
       ],
       "category": "public.app-category.graphics-design",
