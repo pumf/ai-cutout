@@ -2,9 +2,12 @@ import { contextBridge, ipcRenderer } from 'electron';
 
 contextBridge.exposeInMainWorld('electronAPI', {
   selectImage: () => ipcRenderer.invoke('select-image'),
+  selectMultipleImages: () => ipcRenderer.invoke('select-multiple-images'),
+  selectFolder: () => ipcRenderer.invoke('select-folder'),
   processImage: (imageData: string, filename: string) =>
     ipcRenderer.invoke('process-image', imageData, filename),
   saveImage: (imageData: string, defaultName?: string) => ipcRenderer.invoke('save-image', imageData, defaultName),
+  saveImageToPath: (imageData: string, filePath: string) => ipcRenderer.invoke('save-image-to-path', imageData, filePath),
   copyImageToClipboard: (imageData: string) => ipcRenderer.invoke('copy-image-to-clipboard', imageData),
   checkModelStatus: () => ipcRenderer.invoke('check-model-status'),
   selectModel: () => ipcRenderer.invoke('select-model'),

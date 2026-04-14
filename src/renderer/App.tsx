@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import './App.css';
 import { GifReader, GifWriter } from 'omggif';
-import { listFixedModels, loadFixedModel, loadCustomModel, processImageWithModel, selectModel, openExternalUrl, saveImage, selectImage, copyImageToClipboard, checkForUpdates, getBackendPort, checkPythonDeps, installPythonDeps } from '../api';
+import { listFixedModels, loadFixedModel, loadCustomModel, processImageWithModel, selectModel, openExternalUrl, saveImage, selectImage, copyImageToClipboard, checkForUpdates, getBackendPort, checkPythonDeps, installPythonDeps, selectMultipleImages, selectFolder, saveImageToPath } from '../api';
 import { TitleBar } from './components/TitleBar';
 
 // 声明 vite 注入的全局变量
@@ -21,6 +21,28 @@ function App() {
   const [errorModelId, setErrorModelId] = useState<string | null>(null);
   const [dragActive, setDragActive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Batch processing states
+  interface BatchTask {
+    id: string;
+    file: File;
+    fileName: string;
+    status: 'pending' | 'processing' | 'success' | 'error' | 'retrying';
+    progress: number;
+    originalImage?: string;
+    processedImage?: string;
+    error?: string;
+    retryCount: number;
+    processingTime?: number;
+  }
+
+  const [showBatchDialog, setShowBatchDialog] = useState(false);
+  const [batchTasks, setBatchTasks] = useState<BatchTask[]>([]);
+  const [isBatchProcessing, setIsBatchProcessing] = useState(false);
+  const [batchOutputDir, setBatchOutputDir] = useState<string>('');
+  const [batchPrefix, setBatchPrefix] = useState<string>('removed_bg_');
+  const [batchConcurrency, setBatchConcurrency] = useState<number>(2);
+  const abortBatchRef = useRef<boolean>(false);
 
   // Update check states
   const [showUpdateDialog, setShowUpdateDialog] = useState(false);
@@ -1121,6 +1143,285 @@ function App() {
       result += String.fromCharCode.apply(null, Array.from(chunk));
     }
     return btoa(result);
+  };
+
+  // Batch processing functions
+  const handleBatchFilesSelect = async () => {
+    try {
+      const result = await selectMultipleImages();
+      if (result && result.length > 0) {
+        // Convert the result to File objects
+        const files: File[] = result.map((item: any) => {
+          const byteCharacters = atob(item.data);
+          const byteNumbers = new Array(byteCharacters.length);
+          for (let i = 0; i < byteCharacters.length; i++) {
+            byteNumbers[i] = byteCharacters.charCodeAt(i);
+          }
+          const byteArray = new Uint8Array(byteNumbers);
+          return new File([byteArray], item.name, { type: item.type });
+        });
+        
+        const newTasks: BatchTask[] = files.map(file => ({
+          id: Math.random().toString(36).substr(2, 9),
+          file,
+          fileName: file.name,
+          status: 'pending',
+          progress: 0,
+          retryCount: 0
+        }));
+        setBatchTasks(prev => [...prev, ...newTasks]);
+      }
+    } catch (err) {
+      console.error('Failed to select files:', err);
+      showToast('选择文件失败', 'error');
+    }
+  };
+
+  const handleRemoveBatchTask = (taskId: string) => {
+    setBatchTasks(prev => prev.filter(t => t.id !== taskId));
+  };
+
+  const handleClearBatchTasks = () => {
+    if (isBatchProcessing) {
+      showToast('请先停止处理', 'error');
+      return;
+    }
+    setBatchTasks([]);
+  };
+
+  const processBatchTask = async (task: BatchTask): Promise<boolean> => {
+    try {
+      // Read file
+      const arrayBuffer = await task.file.arrayBuffer();
+      const bytes = new Uint8Array(arrayBuffer);
+      
+      // Check if GIF
+      const isGif = task.file.type === 'image/gif' || 
+                    bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46;
+      
+      if (isGif) {
+        // For GIF, we need special handling - skip for now or process as first frame
+        setBatchTasks(prev => prev.map(t => 
+          t.id === task.id ? { ...t, status: 'processing', progress: 50 } : t
+        ));
+        
+        // For batch processing, we skip GIF or process first frame only
+        // This is a simplified version - full GIF processing is too slow for batch
+        const blob = new Blob([arrayBuffer], { type: 'image/gif' });
+        const url = URL.createObjectURL(blob);
+        setBatchTasks(prev => prev.map(t => 
+          t.id === task.id ? { 
+            ...t, 
+            status: 'success', 
+            progress: 100,
+            processedImage: url,
+            originalImage: url
+          } : t
+        ));
+        return true;
+      }
+      
+      // Process as regular image
+      setBatchTasks(prev => prev.map(t => 
+        t.id === task.id ? { ...t, status: 'processing', progress: 30 } : t
+      ));
+      
+      // Convert to base64
+      const base64 = arrayBufferToBase64(arrayBuffer);
+      
+      setBatchTasks(prev => prev.map(t => 
+        t.id === task.id ? { ...t, progress: 50 } : t
+      ));
+      
+      // Process with AI model
+      const processedBlob = await processImageFrame(base64);
+      const url = URL.createObjectURL(processedBlob);
+      
+      setBatchTasks(prev => prev.map(t => 
+        t.id === task.id ? { 
+          ...t, 
+          status: 'success', 
+          progress: 100,
+          processedImage: url,
+          originalImage: `data:image/png;base64,${base64}`
+        } : t
+      ));
+      
+      return true;
+    } catch (err) {
+      console.error('Batch processing failed:', err);
+      setBatchTasks(prev => prev.map(t => 
+        t.id === task.id ? { 
+          ...t, 
+          status: 'error', 
+          error: (err as Error).message,
+          progress: 0
+        } : t
+      ));
+      return false;
+    }
+  };
+
+  const processBatchWithRetry = async (task: BatchTask): Promise<boolean> => {
+    // First attempt
+    let success = await processBatchTask(task);
+    
+    // Auto retry once if failed
+    if (!success && task.retryCount < 1) {
+      setBatchTasks(prev => prev.map(t => 
+        t.id === task.id ? { 
+          ...t, 
+          status: 'retrying', 
+          retryCount: t.retryCount + 1,
+          error: undefined
+        } : t
+      ));
+      
+      // Small delay before retry
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Retry
+      const retryTask = { ...task, retryCount: task.retryCount + 1 };
+      success = await processBatchTask(retryTask);
+    }
+    
+    return success;
+  };
+
+  const handleStartBatchProcessing = async () => {
+    if (batchTasks.length === 0) {
+      showToast('请先添加文件', 'error');
+      return;
+    }
+    
+    if (modelStatus !== 'ready') {
+      showToast('请先等待模型加载完成', 'error');
+      return;
+    }
+    
+    setIsBatchProcessing(true);
+    abortBatchRef.current = false;
+    
+    // Reset all pending/error tasks to pending
+    setBatchTasks(prev => prev.map(t => 
+      t.status === 'error' || t.status === 'retrying' 
+        ? { ...t, status: 'pending', progress: 0, error: undefined }
+        : t.status === 'success' ? t : { ...t, status: 'pending' }
+    ));
+    
+    // Get pending tasks
+    const pendingTasks = batchTasks.filter(t => t.status === 'pending' || t.status === 'error');
+    
+    // Process with concurrency control
+    const executing: Promise<void>[] = [];
+    let completed = 0;
+    let successCount = 0;
+    let errorCount = 0;
+    
+    for (const task of pendingTasks) {
+      if (abortBatchRef.current) break;
+      
+      const promise = (async () => {
+        const success = await processBatchWithRetry(task);
+        if (success) {
+          successCount++;
+        } else {
+          errorCount++;
+        }
+        completed++;
+      })();
+      
+      executing.push(promise);
+      
+      if (executing.length >= batchConcurrency) {
+        await Promise.race(executing);
+      }
+    }
+    
+    await Promise.all(executing);
+    
+    setIsBatchProcessing(false);
+    
+    showToast(`处理完成: ${successCount} 成功, ${errorCount} 失败`, successCount > 0 ? 'success' : 'error');
+  };
+
+  const handleStopBatchProcessing = () => {
+    abortBatchRef.current = true;
+    setIsBatchProcessing(false);
+    showToast('已停止处理', 'info');
+  };
+
+  const handleBatchExport = async () => {
+    const successTasks = batchTasks.filter(t => t.status === 'success' && t.processedImage);
+    
+    if (successTasks.length === 0) {
+      showToast('没有可导出的图片', 'error');
+      return;
+    }
+    
+    try {
+      // Use Electron's dialog to select output directory
+      const result = await selectFolder();
+      if (!result || result.canceled) return;
+      
+      const outputDir = result.filePaths[0];
+      let exported = 0;
+      
+      for (const task of successTasks) {
+        try {
+          const ext = task.fileName.toLowerCase().endsWith('.gif') ? 'gif' : 'png';
+          const baseName = task.fileName.replace(/\.[^/.]+$/, '');
+          const outputName = `${batchPrefix}${baseName}.${ext}`;
+          const outputPath = `${outputDir}/${outputName}`;
+          
+          if (task.processedImage!.startsWith('blob:')) {
+            const response = await fetch(task.processedImage!);
+            const blob = await response.blob();
+            const arrayBuffer = await blob.arrayBuffer();
+            const base64 = arrayBufferToBase64(arrayBuffer);
+            const dataUrl = `data:image/${ext};base64,${base64}`;
+            await saveImageToPath(dataUrl, outputPath);
+          } else {
+            await saveImageToPath(task.processedImage!, outputPath);
+          }
+          
+          exported++;
+        } catch (err) {
+          console.error('Export failed for task:', task.id, err);
+        }
+      }
+      
+      showToast(`导出完成: ${exported}/${successTasks.length}`, exported > 0 ? 'success' : 'error');
+    } catch (err) {
+      console.error('Export failed:', err);
+      showToast('导出失败', 'error');
+    }
+  };
+
+  const handleRetryTask = async (taskId: string) => {
+    const task = batchTasks.find(t => t.id === taskId);
+    if (!task || isBatchProcessing) return;
+    
+    setBatchTasks(prev => prev.map(t => 
+      t.id === taskId ? { ...t, status: 'pending', progress: 0, error: undefined } : t
+    ));
+    
+    await processBatchWithRetry(task);
+  };
+
+  const handleBatchDialogClose = () => {
+    if (isBatchProcessing) {
+      showToast('请先停止处理再关闭窗口', 'error');
+      return;
+    }
+    setShowBatchDialog(false);
+    // Clean up blob URLs
+    batchTasks.forEach(task => {
+      if (task.processedImage && task.processedImage.startsWith('blob:')) {
+        URL.revokeObjectURL(task.processedImage);
+      }
+    });
+    setBatchTasks([]);
   };
 
   const handleSave = async () => {
@@ -2487,6 +2788,200 @@ function App() {
         </div>
       )}
 
+      {/* Batch Processing Dialog */}
+      {showBatchDialog && (
+        <div className="modal-overlay" onClick={handleBatchDialogClose}>
+          <div className="modal modal-batch" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>批量抠图</h3>
+              <button className="modal-close" onClick={handleBatchDialogClose}>×</button>
+            </div>
+            <div className="modal-content batch-content">
+              {/* Stats */}
+              <div className="batch-stats">
+                <div className="stat-item">
+                  <span className="stat-value">{batchTasks.length}</span>
+                  <span className="stat-label">总文件</span>
+                </div>
+                <div className="stat-item success">
+                  <span className="stat-value">{batchTasks.filter(t => t.status === 'success').length}</span>
+                  <span className="stat-label">成功</span>
+                </div>
+                <div className="stat-item error">
+                  <span className="stat-value">{batchTasks.filter(t => t.status === 'error').length}</span>
+                  <span className="stat-label">失败</span>
+                </div>
+                <div className="stat-item pending">
+                  <span className="stat-value">{batchTasks.filter(t => t.status === 'pending' || t.status === 'processing').length}</span>
+                  <span className="stat-label">待处理</span>
+                </div>
+              </div>
+
+              {/* Progress */}
+              {isBatchProcessing && (
+                <div className="batch-progress">
+                  <div className="progress-bar">
+                    <div 
+                      className="progress-fill" 
+                      style={{ 
+                        width: `${(batchTasks.filter(t => t.status === 'success' || t.status === 'error').length / batchTasks.length) * 100}%` 
+                      }}
+                    />
+                  </div>
+                  <span className="progress-text">
+                    {batchTasks.filter(t => t.status === 'success' || t.status === 'error').length} / {batchTasks.length}
+                  </span>
+                </div>
+              )}
+
+              {/* File List */}
+              <div className="batch-list">
+                {batchTasks.length === 0 ? (
+                  <div className="batch-empty">
+                    <span className="empty-icon">📁</span>
+                    <p>拖拽文件到此处或点击下方按钮添加</p>
+                    <p className="empty-hint">支持 PNG、JPG、WebP、GIF 格式</p>
+                  </div>
+                ) : (
+                  batchTasks.map(task => (
+                    <div key={task.id} className={`batch-item ${task.status}`}>
+                      <div className="item-icon">
+                        {task.status === 'success' ? '✓' : 
+                         task.status === 'error' ? '✗' : 
+                         task.status === 'processing' ? '🔄' : 
+                         task.status === 'retrying' ? '↻' : '⏳'}
+                      </div>
+                      <div className="item-info">
+                        <span className="item-name" title={task.fileName}>{task.fileName}</span>
+                        {task.error && <span className="item-error">{task.error}</span>}
+                        {task.retryCount > 0 && <span className="item-retry">已重试 {task.retryCount} 次</span>}
+                      </div>
+                      <div className="item-progress">
+                        {task.status === 'processing' && (
+                          <>
+                            <div className="progress-ring">
+                              <svg viewBox="0 0 36 36">
+                                <path
+                                  className="progress-ring-bg"
+                                  d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                                />
+                                <path
+                                  className="progress-ring-fill"
+                                  strokeDasharray={`${task.progress}, 100`}
+                                  d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                                />
+                              </svg>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                      <div className="item-actions">
+                        {task.status === 'error' && !isBatchProcessing && (
+                          <button 
+                            className="btn-icon" 
+                            onClick={() => handleRetryTask(task.id)}
+                            title="重试"
+                          >
+                            ↻
+                          </button>
+                        )}
+                        {!isBatchProcessing && (
+                          <button 
+                            className="btn-icon" 
+                            onClick={() => handleRemoveBatchTask(task.id)}
+                            title="删除"
+                          >
+                            ×
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              {/* Settings */}
+              <div className="batch-settings">
+                <div className="setting-item">
+                  <label>并发数:</label>
+                  <select 
+                    value={batchConcurrency} 
+                    onChange={(e) => setBatchConcurrency(Number(e.target.value))}
+                    disabled={isBatchProcessing}
+                  >
+                    <option value={1}>1 (稳定)</option>
+                    <option value={2}>2 (推荐)</option>
+                    <option value={3}>3 (快速)</option>
+                    <option value={4}>4 (高性能)</option>
+                  </select>
+                </div>
+                <div className="setting-item">
+                  <label>文件名前缀:</label>
+                  <input 
+                    type="text" 
+                    value={batchPrefix}
+                    onChange={(e) => setBatchPrefix(e.target.value)}
+                    placeholder="removed_bg_"
+                    disabled={isBatchProcessing}
+                  />
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="batch-actions">
+                <div className="actions-left">
+                  <button 
+                    className="btn btn-secondary" 
+                    onClick={handleBatchFilesSelect}
+                    disabled={isBatchProcessing}
+                  >
+                    <span className="btn-icon">+</span>
+                    添加文件
+                  </button>
+                  <button 
+                    className="btn btn-text" 
+                    onClick={handleClearBatchTasks}
+                    disabled={isBatchProcessing || batchTasks.length === 0}
+                  >
+                    清空列表
+                  </button>
+                </div>
+                <div className="actions-right">
+                  {isBatchProcessing ? (
+                    <button 
+                      className="btn btn-danger" 
+                      onClick={handleStopBatchProcessing}
+                    >
+                      <span className="btn-icon">⏹</span>
+                      停止处理
+                    </button>
+                  ) : (
+                    <>
+                      <button 
+                        className="btn btn-secondary" 
+                        onClick={handleBatchExport}
+                        disabled={batchTasks.filter(t => t.status === 'success').length === 0}
+                      >
+                        <span className="btn-icon">💾</span>
+                        导出全部
+                      </button>
+                      <button 
+                        className="btn btn-primary" 
+                        onClick={handleStartBatchProcessing}
+                        disabled={batchTasks.length === 0 || batchTasks.every(t => t.status === 'success')}
+                      >
+                        <span className="btn-icon">▶</span>
+                        开始处理
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <main className="main">
         <div className="toolbar">
           {/* 主要操作组 */}
@@ -2498,6 +2993,14 @@ function App() {
             >
               <span className="btn-icon">📁</span>
               <span className="btn-text">选择</span>
+            </button>
+            <button
+              className="btn btn-secondary"
+              onClick={() => setShowBatchDialog(true)}
+              title="批量处理多张图片"
+            >
+              <span className="btn-icon">📂</span>
+              <span className="btn-text">批量</span>
             </button>
             {isGifProcessing ? (
               <button

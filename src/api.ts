@@ -2,8 +2,11 @@ declare global {
   interface Window {
     electronAPI?: {
       selectImage: () => Promise<{path: string; data: string; name: string} | null>;
+      selectMultipleImages: () => Promise<File[] | null>;
+      selectFolder: () => Promise<{canceled: boolean; filePaths: string[]} | null>;
       processImage: (imageData: string, filename: string) => Promise<string>;
       saveImage: (imageData: string, defaultName?: string) => Promise<string | null>;
+      saveImageToPath: (imageData: string, filePath: string) => Promise<boolean>;
       copyImageToClipboard: (imageData: string) => Promise<{success: boolean}>;
       checkModelStatus: () => Promise<any>;
       selectModel: () => Promise<{path: string; name: string} | null>;
@@ -176,4 +179,25 @@ export async function installPythonDeps(): Promise<boolean> {
     throw new Error('Electron API not available');
   }
   return window.electronAPI.installPythonDeps();
+}
+
+export async function selectMultipleImages(): Promise<File[] | null> {
+  if (!window.electronAPI) {
+    throw new Error('Electron API not available');
+  }
+  return window.electronAPI.selectMultipleImages();
+}
+
+export async function selectFolder(): Promise<{canceled: boolean; filePaths: string[]} | null> {
+  if (!window.electronAPI) {
+    throw new Error('Electron API not available');
+  }
+  return window.electronAPI.selectFolder();
+}
+
+export async function saveImageToPath(imageData: string, filePath: string): Promise<boolean> {
+  if (!window.electronAPI) {
+    throw new Error('Electron API not available');
+  }
+  return window.electronAPI.saveImageToPath(imageData, filePath);
 }

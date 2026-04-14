@@ -41,6 +41,75 @@ let mainWindow = null;
 let pythonProcess = null;
 let viteServer = null;
 const isDev = process.env.NODE_ENV === 'development' || !electron_1.app.isPackaged;
+// Check if Python dependencies are installed
+const checkPythonDependencies = (pythonCmd) => {
+    try {
+        (0, child_process_1.execSync)(`${pythonCmd} -c "import torch, torchvision, numpy, pillow, onnxruntime, fastapi, uvicorn"`, { stdio: 'ignore' });
+        return true;
+    }
+    catch {
+        return false;
+    }
+};
+// Install Python dependencies automatically
+const installPythonDependencies = async (pythonCmd) => {
+    return new Promise((resolve) => {
+        const deps = 'torch torchvision numpy pillow onnxruntime fastapi uvicorn python-multipart python-json-logger';
+        electron_1.dialog.showMessageBox(mainWindow, {
+            type: 'info',
+            title: '安装 Python 依赖',
+            message: '首次启动需要安装 Python 依赖',
+            detail: `检测到缺少必要的 Python 依赖。点击"安装"按钮自动安装，或点击"取消"手动安装。\n\n需要的依赖：${deps}`,
+            buttons: ['安装', '取消'],
+            defaultId: 0,
+        }).then(({ response }) => {
+            if (response === 0) {
+                // User clicked Install
+                electron_1.dialog.showMessageBox(mainWindow, {
+                    type: 'info',
+                    title: '正在安装',
+                    message: '正在安装依赖，请稍候...',
+                    detail: '这可能需要几分钟时间，取决于网络速度。',
+                });
+                const installProcess = (0, child_process_1.spawn)(pythonCmd, ['-m', 'pip', 'install', ...deps.split(' ')], {
+                    stdio: 'pipe',
+                    shell: true,
+                });
+                let output = '';
+                installProcess.stdout.on('data', (data) => {
+                    output += data.toString();
+                    console.log('[pip install]:', data.toString());
+                });
+                installProcess.stderr.on('data', (data) => {
+                    output += data.toString();
+                    console.error('[pip install error]:', data.toString());
+                });
+                installProcess.on('close', (code) => {
+                    if (code === 0) {
+                        electron_1.dialog.showMessageBox(mainWindow, {
+                            type: 'info',
+                            title: '安装完成',
+                            message: '依赖安装成功！',
+                            detail: '请重启应用以使用完整功能。',
+                            buttons: ['重启应用'],
+                        }).then(() => {
+                            electron_1.app.relaunch();
+                            electron_1.app.exit(0);
+                        });
+                        resolve(true);
+                    }
+                    else {
+                        electron_1.dialog.showErrorBox('安装失败', `依赖安装失败（退出码：${code}）。\n\n请手动在终端执行：\n${pythonCmd} -m pip install ${deps}\n\n错误输出：\n${output.slice(-500)}`);
+                        resolve(false);
+                    }
+                });
+            }
+            else {
+                resolve(false);
+            }
+        });
+    });
+};
 const getAppPath = () => {
     if (electron_1.app.isPackaged) {
         return path.join(process.resourcesPath, 'app');
@@ -298,33 +367,43 @@ async function createWindow() {
         mainWindow.webContents.openDevTools();
     }
     else {
-        try {
-            await startPythonBackend();
-            console.log('Python backend started successfully');
+        const pythonCmd = getPythonCmd();
+        const isUsingSystemPython = pythonCmd === 'python3' || pythonCmd === 'python';
+        // Check if using system Python and dependencies are missing
+        if (isUsingSystemPython && !checkPythonDependencies(pythonCmd)) {
+            console.log('Python dependencies not found, prompting user to install...');
+            // Load the UI first
+            const distPath = getDistPath();
+            mainWindow.loadFile(path.join(distPath, 'index.html'));
+            // Wait for window to show before showing dialog
+            mainWindow.once('ready-to-show', async () => {
+                mainWindow?.show();
+                // Show install dialog
+                const installed = await installPythonDependencies(pythonCmd);
+                if (!installed) {
+                    // User cancelled, show warning but continue
+                    electron_1.dialog.showMessageBox(mainWindow, {
+                        type: 'warning',
+                        title: '缺少依赖',
+                        message: 'Python 依赖未安装',
+                        detail: '部分功能可能无法使用。您可以在帮助页面中点击"检查更新"按钮重新安装依赖。',
+                        buttons: ['知道了'],
+                    });
+                }
+            });
         }
-        catch (error) {
-            console.error('Failed to start Python backend:', error);
-            // Check if we're using system Python on macOS
-            const pythonCmd = getPythonCmd();
-            const isUsingSystemPython = pythonCmd === 'python3' || pythonCmd === 'python';
-            if (isUsingSystemPython && process.platform === 'darwin') {
-                // Show helpful message for macOS users using system Python
-                console.log('\n========================================');
-                console.log('macOS Intel 用户请注意：');
-                console.log('由于嵌入式 Python 环境架构不匹配，正在使用系统 Python。');
-                console.log('如果模型列表为空，请确保已安装以下依赖：');
-                console.log('');
-                console.log('pip3 install torch torchvision numpy pillow onnxruntime fastapi uvicorn python-multipart python-json-logger');
-                console.log('');
-                console.log('或使用 Homebrew 安装 Python：');
-                console.log('brew install python');
-                console.log('========================================\n');
+        else {
+            // Dependencies are installed or using embedded venv, start backend normally
+            try {
+                await startPythonBackend();
+                console.log('Python backend started successfully');
             }
-            // Don't block the app, let it continue
-            // The frontend will handle backend unavailability gracefully
+            catch (error) {
+                console.error('Failed to start Python backend:', error);
+            }
+            const distPath = getDistPath();
+            mainWindow.loadFile(path.join(distPath, 'index.html'));
         }
-        const distPath = getDistPath();
-        mainWindow.loadFile(path.join(distPath, 'index.html'));
     }
     mainWindow.on('closed', () => {
         mainWindow = null;
@@ -378,6 +457,58 @@ electron_1.ipcMain.handle('select-image', async () => {
     }
     return null;
 });
+electron_1.ipcMain.handle('select-multiple-images', async () => {
+    const result = await electron_1.dialog.showOpenDialog(mainWindow, {
+        properties: ['openFile', 'multiSelections'],
+        filters: [
+            { name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif'] }
+        ]
+    });
+    if (!result.canceled && result.filePaths.length > 0) {
+        // Return File objects that can be used in renderer process
+        const files = result.filePaths.map(filePath => {
+            const buffer = fs.readFileSync(filePath);
+            const ext = path.extname(filePath).toLowerCase();
+            const mimeTypes = {
+                '.png': 'image/png',
+                '.jpg': 'image/jpeg',
+                '.jpeg': 'image/jpeg',
+                '.webp': 'image/webp',
+                '.gif': 'image/gif'
+            };
+            const mimeType = mimeTypes[ext] || 'image/png';
+            // Create a File-like object
+            return {
+                path: filePath,
+                name: path.basename(filePath),
+                type: mimeType,
+                size: buffer.length,
+                data: buffer.toString('base64')
+            };
+        });
+        return files;
+    }
+    return null;
+});
+electron_1.ipcMain.handle('select-folder', async () => {
+    const result = await electron_1.dialog.showOpenDialog(mainWindow, {
+        properties: ['openDirectory']
+    });
+    return result;
+});
+electron_1.ipcMain.handle('save-image-to-path', async (_event, imageData, filePath) => {
+    try {
+        // Remove data URL prefix if present
+        const base64Data = imageData.replace(/^data:image\/\w+;base64,/, '');
+        const buffer = Buffer.from(base64Data, 'base64');
+        fs.writeFileSync(filePath, buffer);
+        return true;
+    }
+    catch (error) {
+        console.error('Save image to path error:', error);
+        return false;
+    }
+});
 electron_1.ipcMain.handle('process-image', async (_event, imageData, filename) => {
     try {
         const response = await fetch(`http://127.0.0.1:${backendPort}/process`, {
@@ -402,12 +533,26 @@ electron_1.ipcMain.handle('process-image', async (_event, imageData, filename) =
     }
 });
 electron_1.ipcMain.handle('save-image', async (_event, imageData, defaultName) => {
-    const result = await electron_1.dialog.showSaveDialog(mainWindow, {
-        defaultPath: defaultName || 'untitled.png',
-        filters: [
+    // 根据文件扩展名确定 filters
+    const ext = defaultName ? path.extname(defaultName).toLowerCase() : '.png';
+    let filters;
+    if (ext === '.gif') {
+        filters = [
+            { name: 'GIF Image', extensions: ['gif'] },
             { name: 'PNG Image', extensions: ['png'] },
             { name: 'JPEG Image', extensions: ['jpg', 'jpeg'] }
-        ]
+        ];
+    }
+    else {
+        filters = [
+            { name: 'PNG Image', extensions: ['png'] },
+            { name: 'JPEG Image', extensions: ['jpg', 'jpeg'] },
+            { name: 'GIF Image', extensions: ['gif'] }
+        ];
+    }
+    const result = await electron_1.dialog.showSaveDialog(mainWindow, {
+        defaultPath: defaultName || 'untitled.png',
+        filters
     });
     if (!result.canceled && result.filePath) {
         // Remove data URL prefix if present
@@ -485,6 +630,22 @@ electron_1.ipcMain.handle('load-custom-model', async (_event, modelPath, modelId
 // Get backend port
 electron_1.ipcMain.handle('get-backend-port', () => {
     return backendPort;
+});
+// Check Python dependencies status
+electron_1.ipcMain.handle('check-python-deps', async () => {
+    const pythonCmd = getPythonCmd();
+    const isUsingSystemPython = pythonCmd === 'python3' || pythonCmd === 'python';
+    const hasDeps = checkPythonDependencies(pythonCmd);
+    return {
+        usingSystemPython: isUsingSystemPython,
+        hasDependencies: hasDeps,
+        pythonCommand: pythonCmd,
+    };
+});
+// Install Python dependencies from renderer
+electron_1.ipcMain.handle('install-python-deps', async () => {
+    const pythonCmd = getPythonCmd();
+    return await installPythonDependencies(pythonCmd);
 });
 // Check for updates from GitHub releases
 electron_1.ipcMain.handle('check-for-updates', async () => {

@@ -483,6 +483,63 @@ ipcMain.handle('select-image', async () => {
   return null;
 });
 
+ipcMain.handle('select-multiple-images', async () => {
+  const result = await dialog.showOpenDialog(mainWindow!, {
+    properties: ['openFile', 'multiSelections'],
+    filters: [
+      { name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif'] }
+    ]
+  });
+  
+  if (!result.canceled && result.filePaths.length > 0) {
+    // Return File objects that can be used in renderer process
+    const files = result.filePaths.map(filePath => {
+      const buffer = fs.readFileSync(filePath);
+      const ext = path.extname(filePath).toLowerCase();
+      const mimeTypes: Record<string, string> = {
+        '.png': 'image/png',
+        '.jpg': 'image/jpeg',
+        '.jpeg': 'image/jpeg',
+        '.webp': 'image/webp',
+        '.gif': 'image/gif'
+      };
+      const mimeType = mimeTypes[ext] || 'image/png';
+      
+      // Create a File-like object
+      return {
+        path: filePath,
+        name: path.basename(filePath),
+        type: mimeType,
+        size: buffer.length,
+        data: buffer.toString('base64')
+      };
+    });
+    
+    return files;
+  }
+  return null;
+});
+
+ipcMain.handle('select-folder', async () => {
+  const result = await dialog.showOpenDialog(mainWindow!, {
+    properties: ['openDirectory']
+  });
+  return result;
+});
+
+ipcMain.handle('save-image-to-path', async (_event: any, imageData: string, filePath: string) => {
+  try {
+    // Remove data URL prefix if present
+    const base64Data = imageData.replace(/^data:image\/\w+;base64,/, '');
+    const buffer = Buffer.from(base64Data, 'base64');
+    fs.writeFileSync(filePath, buffer);
+    return true;
+  } catch (error) {
+    console.error('Save image to path error:', error);
+    return false;
+  }
+});
+
 ipcMain.handle('process-image', async (_event: any, imageData: string, filename: string) => {
   try {
     const response = await fetch(`http://127.0.0.1:${backendPort}/process`, {
