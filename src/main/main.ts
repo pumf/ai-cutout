@@ -509,12 +509,27 @@ ipcMain.handle('process-image', async (_event: any, imageData: string, filename:
 });
 
 ipcMain.handle('save-image', async (_event: any, imageData: string, defaultName?: string) => {
-  const result = await dialog.showSaveDialog(mainWindow!, {
-    defaultPath: defaultName || 'untitled.png',
-    filters: [
+  // 根据文件扩展名确定 filters
+  const ext = defaultName ? path.extname(defaultName).toLowerCase() : '.png';
+  let filters: { name: string; extensions: string[] }[];
+  
+  if (ext === '.gif') {
+    filters = [
+      { name: 'GIF Image', extensions: ['gif'] },
       { name: 'PNG Image', extensions: ['png'] },
       { name: 'JPEG Image', extensions: ['jpg', 'jpeg'] }
-    ]
+    ];
+  } else {
+    filters = [
+      { name: 'PNG Image', extensions: ['png'] },
+      { name: 'JPEG Image', extensions: ['jpg', 'jpeg'] },
+      { name: 'GIF Image', extensions: ['gif'] }
+    ];
+  }
+  
+  const result = await dialog.showSaveDialog(mainWindow!, {
+    defaultPath: defaultName || 'untitled.png',
+    filters
   });
 
   if (!result.canceled && result.filePath) {
