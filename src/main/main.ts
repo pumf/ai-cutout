@@ -47,15 +47,38 @@ const getPythonCmd = () => {
       return archSpecificVenv;
     }
 
-    // Fall back to generic venv (for backward compatibility)
+    // Check if generic venv exists and is compatible
     const genericVenvPath = path.join(process.resourcesPath, 'venv', venvBinDir, venvPythonName);
     if (fs.existsSync(genericVenvPath)) {
-      console.log('Using generic venv:', genericVenvPath);
-      return genericVenvPath;
+      // On macOS, check if the venv architecture matches
+      if (platform === 'darwin') {
+        try {
+          // Check the architecture of the Python binary
+          const pythonBinary = path.join(process.resourcesPath, 'venv', venvBinDir, 'python3');
+          const fileInfo = require('child_process').execSync(`file "${pythonBinary}"`, { encoding: 'utf8' });
+          console.log('Venv Python binary info:', fileInfo);
+          
+          // Check if architectures match
+          const isArm64 = fileInfo.includes('arm64');
+          const isX86_64 = fileInfo.includes('x86_64');
+          
+          if ((arch === 'arm64' && isArm64) || (arch === 'x64' && isX86_64)) {
+            console.log('Using generic venv (architecture matches):', genericVenvPath);
+            return genericVenvPath;
+          } else {
+            console.log(`Architecture mismatch: running on ${arch}, venv is ${isArm64 ? 'arm64' : (isX86_64 ? 'x86_64' : 'unknown')}`);
+          }
+        } catch (error) {
+          console.log('Could not determine venv architecture, will try system Python');
+        }
+      } else {
+        console.log('Using generic venv:', genericVenvPath);
+        return genericVenvPath;
+      }
     }
 
     // Fall back to system Python
-    console.log('venv not found, trying system python');
+    console.log('Using system Python (embedded venv not compatible)');
     // On Windows, try 'python' first, then 'py'
     // On macOS/Linux, try 'python3' first, then 'python'
     if (isWin) {
@@ -201,6 +224,11 @@ async function startPythonBackend(): Promise<void> {
         reject(new Error('Architecture mismatch: The embedded Python environment is not compatible with this system. Please install Python 3.9+ and required packages manually.'));
       }
 
+      // Check for module import errors (missing dependencies)
+      if (output.includes('ModuleNotFoundError') || output.includes('ImportError')) {
+        reject(new Error('Missing Python dependencies: Please ensure all required packages are installed. Run: pip install torch torchvision numpy pillow onnxruntime fastapi uvicorn python-multipart python-json-logger'));
+      }
+
       // Check for Windows-specific errors
       if (process.platform === 'win32') {
         if (output.includes('is not recognized') || output.includes('not found')) {
@@ -281,7 +309,26 @@ async function createWindow() {
       console.log('Python backend started successfully');
     } catch (error) {
       console.error('Failed to start Python backend:', error);
-      // Don't show error dialog, let the app continue
+      
+      // Check if we're using system Python on macOS
+      const pythonCmd = getPythonCmd();
+      const isUsingSystemPython = pythonCmd === 'python3' || pythonCmd === 'python';
+      
+      if (isUsingSystemPython && process.platform === 'darwin') {
+        // Show helpful message for macOS users using system Python
+        console.log('\n========================================');
+        console.log('macOS Intel 用户请注意：');
+        console.log('由于嵌入式 Python 环境架构不匹配，正在使用系统 Python。');
+        console.log('如果模型列表为空，请确保已安装以下依赖：');
+        console.log('');
+        console.log('pip3 install torch torchvision numpy pillow onnxruntime fastapi uvicorn python-multipart python-json-logger');
+        console.log('');
+        console.log('或使用 Homebrew 安装 Python：');
+        console.log('brew install python');
+        console.log('========================================\n');
+      }
+      
+      // Don't block the app, let it continue
       // The frontend will handle backend unavailability gracefully
     }
     const distPath = getDistPath();
