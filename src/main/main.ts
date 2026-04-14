@@ -1,13 +1,89 @@
 import { app, BrowserWindow, ipcMain, dialog, clipboard, nativeImage } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
-import { spawn } from 'child_process';
+import { spawn, execSync } from 'child_process';
 
 let mainWindow: BrowserWindow | null = null;
 let pythonProcess: any = null;
 let viteServer: any = null;
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
+
+// Check if Python dependencies are installed
+const checkPythonDependencies = (pythonCmd: string): boolean => {
+  try {
+    execSync(`${pythonCmd} -c "import torch, torchvision, numpy, pillow, onnxruntime, fastapi, uvicorn"`, { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+// Install Python dependencies automatically
+const installPythonDependencies = async (pythonCmd: string): Promise<boolean> => {
+  return new Promise((resolve) => {
+    const deps = 'torch torchvision numpy pillow onnxruntime fastapi uvicorn python-multipart python-json-logger';
+    
+    dialog.showMessageBox(mainWindow!, {
+      type: 'info',
+      title: '安装 Python 依赖',
+      message: '首次启动需要安装 Python 依赖',
+      detail: `检测到缺少必要的 Python 依赖。点击"安装"按钮自动安装，或点击"取消"手动安装。\n\n需要的依赖：${deps}`,
+      buttons: ['安装', '取消'],
+      defaultId: 0,
+    }).then(({ response }) => {
+      if (response === 0) {
+        // User clicked Install
+        dialog.showMessageBox(mainWindow!, {
+          type: 'info',
+          title: '正在安装',
+          message: '正在安装依赖，请稍候...',
+          detail: '这可能需要几分钟时间，取决于网络速度。',
+        });
+
+        const installProcess = spawn(pythonCmd, ['-m', 'pip', 'install', ...deps.split(' ')], {
+          stdio: 'pipe',
+          shell: true,
+        });
+
+        let output = '';
+        installProcess.stdout.on('data', (data) => {
+          output += data.toString();
+          console.log('[pip install]:', data.toString());
+        });
+
+        installProcess.stderr.on('data', (data) => {
+          output += data.toString();
+          console.error('[pip install error]:', data.toString());
+        });
+
+        installProcess.on('close', (code) => {
+          if (code === 0) {
+            dialog.showMessageBox(mainWindow!, {
+              type: 'info',
+              title: '安装完成',
+              message: '依赖安装成功！',
+              detail: '请重启应用以使用完整功能。',
+              buttons: ['重启应用'],
+            }).then(() => {
+              app.relaunch();
+              app.exit(0);
+            });
+            resolve(true);
+          } else {
+            dialog.showErrorBox(
+              '安装失败',
+              `依赖安装失败（退出码：${code}）。\n\n请手动在终端执行：\n${pythonCmd} -m pip install ${deps}\n\n错误输出：\n${output.slice(-500)}`
+            );
+            resolve(false);
+          }
+        });
+      } else {
+        resolve(false);
+      }
+    });
+  });
+};
 
 const getAppPath = () => {
   if (app.isPackaged) {
@@ -304,35 +380,47 @@ async function createWindow() {
     mainWindow.loadURL('http://localhost:5173');
     mainWindow.webContents.openDevTools();
     } else {
-    try {
-      await startPythonBackend();
-      console.log('Python backend started successfully');
-    } catch (error) {
-      console.error('Failed to start Python backend:', error);
+    const pythonCmd = getPythonCmd();
+    const isUsingSystemPython = pythonCmd === 'python3' || pythonCmd === 'python';
+    
+    // Check if using system Python and dependencies are missing
+    if (isUsingSystemPython && !checkPythonDependencies(pythonCmd)) {
+      console.log('Python dependencies not found, prompting user to install...');
       
-      // Check if we're using system Python on macOS
-      const pythonCmd = getPythonCmd();
-      const isUsingSystemPython = pythonCmd === 'python3' || pythonCmd === 'python';
+      // Load the UI first
+      const distPath = getDistPath();
+      mainWindow.loadFile(path.join(distPath, 'index.html'));
       
-      if (isUsingSystemPython && process.platform === 'darwin') {
-        // Show helpful message for macOS users using system Python
-        console.log('\n========================================');
-        console.log('macOS Intel 用户请注意：');
-        console.log('由于嵌入式 Python 环境架构不匹配，正在使用系统 Python。');
-        console.log('如果模型列表为空，请确保已安装以下依赖：');
-        console.log('');
-        console.log('pip3 install torch torchvision numpy pillow onnxruntime fastapi uvicorn python-multipart python-json-logger');
-        console.log('');
-        console.log('或使用 Homebrew 安装 Python：');
-        console.log('brew install python');
-        console.log('========================================\n');
+      // Wait for window to show before showing dialog
+      mainWindow.once('ready-to-show', async () => {
+        mainWindow?.show();
+        
+        // Show install dialog
+        const installed = await installPythonDependencies(pythonCmd);
+        
+        if (!installed) {
+          // User cancelled, show warning but continue
+          dialog.showMessageBox(mainWindow!, {
+            type: 'warning',
+            title: '缺少依赖',
+            message: 'Python 依赖未安装',
+            detail: '部分功能可能无法使用。您可以在帮助页面中点击"检查更新"按钮重新安装依赖。',
+            buttons: ['知道了'],
+          });
+        }
+      });
+    } else {
+      // Dependencies are installed or using embedded venv, start backend normally
+      try {
+        await startPythonBackend();
+        console.log('Python backend started successfully');
+      } catch (error) {
+        console.error('Failed to start Python backend:', error);
       }
       
-      // Don't block the app, let it continue
-      // The frontend will handle backend unavailability gracefully
+      const distPath = getDistPath();
+      mainWindow.loadFile(path.join(distPath, 'index.html'));
     }
-    const distPath = getDistPath();
-    mainWindow.loadFile(path.join(distPath, 'index.html'));
   }
 
   mainWindow.on('closed', () => {
@@ -510,6 +598,25 @@ ipcMain.handle('load-custom-model', async (_event: any, modelPath: string, model
 // Get backend port
 ipcMain.handle('get-backend-port', () => {
   return backendPort;
+});
+
+// Check Python dependencies status
+ipcMain.handle('check-python-deps', async () => {
+  const pythonCmd = getPythonCmd();
+  const isUsingSystemPython = pythonCmd === 'python3' || pythonCmd === 'python';
+  const hasDeps = checkPythonDependencies(pythonCmd);
+  
+  return {
+    usingSystemPython: isUsingSystemPython,
+    hasDependencies: hasDeps,
+    pythonCommand: pythonCmd,
+  };
+});
+
+// Install Python dependencies from renderer
+ipcMain.handle('install-python-deps', async () => {
+  const pythonCmd = getPythonCmd();
+  return await installPythonDependencies(pythonCmd);
 });
 
 // Check for updates from GitHub releases

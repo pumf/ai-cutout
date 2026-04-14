@@ -13,6 +13,9 @@ declare global {
       windowClose: () => Promise<void>;
       checkForUpdates: () => Promise<UpdateCheckResult>;
       openExternal: (url: string) => Promise<void>;
+      getBackendPort: () => Promise<number>;
+      checkPythonDeps: () => Promise<{usingSystemPython: boolean; hasDependencies: boolean; pythonCommand: string}>;
+      installPythonDeps: () => Promise<boolean>;
     };
   }
 }
@@ -159,4 +162,18 @@ export async function getBackendPort(): Promise<number> {
   const port = await window.electronAPI.getBackendPort();
   setBackendPort(port);
   return port;
+}
+
+export async function checkPythonDeps(): Promise<{usingSystemPython: boolean; hasDependencies: boolean; pythonCommand: string}> {
+  if (!window.electronAPI) {
+    return { usingSystemPython: false, hasDependencies: true, pythonCommand: 'python3' };
+  }
+  return window.electronAPI.checkPythonDeps();
+}
+
+export async function installPythonDeps(): Promise<boolean> {
+  if (!window.electronAPI) {
+    throw new Error('Electron API not available');
+  }
+  return window.electronAPI.installPythonDeps();
 }

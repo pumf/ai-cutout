@@ -15,4 +15,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
   openExternal: (url: string) => ipcRenderer.invoke('open-external', url),
   getBackendPort: () => ipcRenderer.invoke('get-backend-port'),
+  checkPythonDeps: () => ipcRenderer.invoke('check-python-deps'),
+  installPythonDeps: () => ipcRenderer.invoke('install-python-deps'),
 });
