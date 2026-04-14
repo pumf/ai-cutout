@@ -3358,13 +3358,13 @@ function App() {
                 />
               )}
               {!originalImage && (
-                <div className="drop-zone">
-                  <div className="drop-zone-icon">🖼️</div>
+                <div className="drop-zone" onClick={handleSelectImage} style={{ cursor: 'pointer' }}>
+                  <div className="drop-zone-icon">📤</div>
                   <div className="drop-zone-text">
-                    拖拽图片到这里，或点击选择
+                    点击或拖拽图片到这里
                   </div>
                   <div className="drop-zone-hint">
-                    支持 PNG、JPG、JPEG、WEBP、GIF
+                    支持 PNG、JPG、WEBP、GIF 格式
                   </div>
                 </div>
               )}
@@ -3488,9 +3488,12 @@ function App() {
               )}
               {!processedImage && (
                 <div className="empty-result">
-                  <div className="empty-icon">🎯</div>
-                  <div className="empty-text">
-                    {originalImage ? '点击"AI抠图"开始处理' : '请先上传图片'}
+                  <div className="empty-icon">✨</div>
+                  <div className="empty-text" style={{ fontSize: '16px', color: '#64748b', fontWeight: 500 }}>
+                    {originalImage ? '点击"AI抠图"开始处理' : '等待图片上传'}
+                  </div>
+                  <div style={{ fontSize: '13px', color: '#94a3b8', marginTop: '4px' }}>
+                    {originalImage ? '智能AI将自动去除背景' : '支持拖拽或点击选择图片'}
                   </div>
                 </div>
               )}
