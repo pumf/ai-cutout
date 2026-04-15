@@ -3295,6 +3295,7 @@ function App() {
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}
               onClick={() => !originalImage && fileInputRef.current?.click()}
+              onWheel={(e) => handleZoom(e as unknown as WheelEvent, originalPanelRef)}
               onMouseDown={editMode === 'none' ? handleMouseDown : handleOriginalMouseDown}
               onMouseMove={editMode === 'none' ? handleMouseMove : (e) => {
                 handleOriginalMouseMove(e);
@@ -3398,6 +3399,7 @@ function App() {
               ref={resultPanelRef}
               className={`panel-content result-panel ${isDragging ? 'dragging' : ''} ${editMode !== 'none' ? 'edit-mode' : ''}`}
               style={{ cursor: isOriginalGif || editMode === 'none' ? 'grab' : 'default' }}
+              onWheel={(e) => handleZoom(e as unknown as WheelEvent, resultPanelRef)}
               onMouseDown={isOriginalGif ? handleMouseDown : (editMode === 'none' ? handleMouseDown : handleDrawStart)}
               onMouseMove={isOriginalGif ? handleMouseMove : (editMode === 'none' ? handleMouseMove : (e) => {
                 handleDrawMove(e);

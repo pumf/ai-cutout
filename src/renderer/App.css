@@ -382,48 +382,48 @@ body {
 
 /* Modern Gradient Button Styles */
 .btn-primary {
-  background: linear-gradient(135deg, #4f46e5 0%, #4338ca 100%);
-  color: #ffffff;
-  box-shadow: 0 2px 8px rgba(79, 70, 229, 0.35);
+  background: linear-gradient(135deg, #3730a3 0%, #312e81 100%);
+  color: #ffffff !important;
+  box-shadow: 0 2px 8px rgba(55, 48, 163, 0.4);
   font-weight: 600;
   letter-spacing: 0.5px;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
 }
 
 .btn-primary:hover:not(:disabled) {
-  background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+  background: linear-gradient(135deg, #4f46e5 0%, #3730a3 100%);
   transform: translateY(-2px);
-  box-shadow: 0 4px 14px rgba(79, 70, 229, 0.45);
+  box-shadow: 0 4px 14px rgba(55, 48, 163, 0.5);
 }
 
 .btn-success {
-  background: linear-gradient(135deg, #059669 0%, #047857 100%);
-  color: #ffffff;
-  box-shadow: 0 2px 8px rgba(5, 150, 105, 0.35);
+  background: linear-gradient(135deg, #047857 0%, #065f46 100%);
+  color: #ffffff !important;
+  box-shadow: 0 2px 8px rgba(4, 120, 87, 0.4);
   font-weight: 600;
   letter-spacing: 0.5px;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
 }
 
 .btn-success:hover:not(:disabled) {
-  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  background: linear-gradient(135deg, #059669 0%, #047857 100%);
   transform: translateY(-2px);
-  box-shadow: 0 4px 14px rgba(5, 150, 105, 0.45);
+  box-shadow: 0 4px 14px rgba(4, 120, 87, 0.5);
 }
 
 .btn-error {
-  background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
-  color: #ffffff;
-  box-shadow: 0 2px 8px rgba(220, 38, 38, 0.35);
+  background: linear-gradient(135deg, #b91c1c 0%, #991b1b 100%);
+  color: #ffffff !important;
+  box-shadow: 0 2px 8px rgba(185, 28, 28, 0.4);
   font-weight: 600;
   letter-spacing: 0.5px;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
 }
 
 .btn-error:hover:not(:disabled) {
-  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+  background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
   transform: translateY(-2px);
-  box-shadow: 0 4px 14px rgba(220, 38, 38, 0.45);
+  box-shadow: 0 4px 14px rgba(185, 28, 28, 0.5);
 }
 
 .btn-secondary {
@@ -2011,7 +2011,7 @@ body {
 
 /* Batch Processing Dialog */
 .modal-batch {
-  width: 900px;
+  width: 1000px;
   max-height: 80vh;
 }
 
