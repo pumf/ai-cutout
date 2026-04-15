@@ -43,6 +43,8 @@ function App() {
   const [batchPrefix, setBatchPrefix] = useState<string>('removed_bg_');
   const [batchConcurrency, setBatchConcurrency] = useState<number>(2);
   const abortBatchRef = useRef<boolean>(false);
+  const [selectedBatchTask, setSelectedBatchTask] = useState<BatchTask | null>(null);
+  const [showBatchPreview, setShowBatchPreview] = useState(false);
 
   // Update check states
   const [showUpdateDialog, setShowUpdateDialog] = useState(false);
@@ -2844,7 +2846,16 @@ function App() {
                   </div>
                 ) : (
                   batchTasks.map(task => (
-                    <div key={task.id} className={`batch-item ${task.status}`}>
+                    <div 
+                      key={task.id} 
+                      className={`batch-item ${task.status} ${selectedBatchTask?.id === task.id ? 'selected' : ''}`}
+                      onClick={() => {
+                        setSelectedBatchTask(task);
+                        setShowBatchPreview(true);
+                      }}
+                      style={{ cursor: 'pointer' }}
+                      title="点击查看预览"
+                    >
                       <div className="item-icon">
                         {task.status === 'success' ? '✓' : 
                          task.status === 'error' ? '✗' : 
@@ -2875,7 +2886,7 @@ function App() {
                           </>
                         )}
                       </div>
-                      <div className="item-actions">
+                      <div className="item-actions" onClick={e => e.stopPropagation()}>
                         {task.status === 'error' && !isBatchProcessing && (
                           <button 
                             className="btn-icon" 
@@ -2975,6 +2986,63 @@ function App() {
                       </button>
                     </>
                   )}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Batch Preview Modal */}
+      {showBatchPreview && selectedBatchTask && (
+        <div className="modal-overlay" onClick={() => setShowBatchPreview(false)}>
+          <div className="modal modal-preview" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>图片预览 - {selectedBatchTask.fileName}</h3>
+              <button className="modal-close" onClick={() => setShowBatchPreview(false)}>×</button>
+            </div>
+            <div className="modal-content preview-content">
+              <div className="preview-comparison">
+                <div className="preview-panel">
+                  <div className="preview-label">原始图片</div>
+                  <div className="preview-image-wrapper">
+                    {selectedBatchTask.originalImage ? (
+                      <img 
+                        src={selectedBatchTask.originalImage} 
+                        alt="Original"
+                        className="preview-img"
+                      />
+                    ) : (
+                      <div className="preview-placeholder">
+                        <span>暂无原始图片</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div className="preview-panel">
+                  <div className="preview-label">
+                    {selectedBatchTask.status === 'success' ? '处理后' : '处理中...'}
+                  </div>
+                  <div className="preview-image-wrapper">
+                    {selectedBatchTask.processedImage ? (
+                      <img 
+                        src={selectedBatchTask.processedImage} 
+                        alt="Processed"
+                        className="preview-img"
+                        style={{ 
+                          background: 'repeating-conic-gradient(#e5e7eb 0% 25%, #f3f4f6 0% 50%) 50% / 20px 20px'
+                        }}
+                      />
+                    ) : (
+                      <div className="preview-placeholder">
+                        <span>
+                          {selectedBatchTask.status === 'processing' ? '处理中...' : 
+                           selectedBatchTask.status === 'pending' ? '等待处理' : 
+                           selectedBatchTask.status === 'error' ? '处理失败' : '准备处理'}
+                        </span>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
