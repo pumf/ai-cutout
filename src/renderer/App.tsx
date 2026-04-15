@@ -2806,8 +2806,8 @@ function App() {
 
       {/* Batch Processing Dialog */}
       {showBatchDialog && (
-        <div className="modal-overlay" style={{ pointerEvents: 'none' }}>
-          <div className="modal modal-batch resizable-modal" style={{ pointerEvents: 'auto' }}>
+        <div className="modal-overlay modal-overlay-blocking">
+          <div className="modal modal-batch resizable-modal">
             <div className="modal-header">
               <h3>批量抠图</h3>
               <button className="modal-close" onClick={handleBatchDialogClose}>×</button>
@@ -2856,7 +2856,7 @@ function App() {
                   <div className="batch-empty">
                     <span className="empty-icon">📁</span>
                     <p>拖拽文件到此处或点击下方按钮添加</p>
-                    <p className="empty-hint">支持 PNG、JPG、WebP、GIF 格式</p>
+                    <p className="empty-hint">支持 PNG、JPG、WebP 格式（不支持 GIF）</p>
                   </div>
                 ) : (
                   batchTasks.map(task => (
@@ -3653,6 +3653,8 @@ interface BatchPreviewModalProps {
 
 function BatchPreviewModal({ task, onClose }: BatchPreviewModalProps) {
   const [originalUrl, setOriginalUrl] = useState<string | null>(null);
+  const [leftScale, setLeftScale] = useState(1);
+  const [rightScale, setRightScale] = useState(1);
   
   useEffect(() => {
     // Create object URL from file for preview
@@ -3663,9 +3665,19 @@ function BatchPreviewModal({ task, onClose }: BatchPreviewModalProps) {
     }
   }, [task.file]);
   
+  const handleWheel = (e: React.WheelEvent, side: 'left' | 'right') => {
+    e.preventDefault();
+    const delta = e.deltaY > 0 ? 0.9 : 1.1;
+    if (side === 'left') {
+      setLeftScale(prev => Math.max(0.1, Math.min(5, prev * delta)));
+    } else {
+      setRightScale(prev => Math.max(0.1, Math.min(5, prev * delta)));
+    }
+  };
+  
   return (
-    <div className="modal-overlay" style={{ pointerEvents: 'none' }}>
-      <div className="modal modal-preview resizable-modal" style={{ pointerEvents: 'auto' }}>
+    <div className="modal-overlay modal-overlay-blocking">
+      <div className="modal modal-preview resizable-modal">
         <div className="modal-header">
           <h3>图片预览 - {task.fileName}</h3>
           <button className="modal-close" onClick={onClose}>×</button>
@@ -3673,19 +3685,21 @@ function BatchPreviewModal({ task, onClose }: BatchPreviewModalProps) {
         <div className="modal-content preview-content">
           <div className="preview-comparison">
             <div className="preview-panel">
-              <div className="preview-label">原始图片</div>
-              <div className="preview-image-wrapper">
+              <div className="preview-label">原始图片 (滚轮缩放)</div>
+              <div className="preview-image-wrapper" onWheel={(e) => handleWheel(e, 'left')}>
                 {task.originalImage ? (
                   <img 
                     src={task.originalImage} 
                     alt="Original"
                     className="preview-img"
+                    style={{ transform: `scale(${leftScale})`, transition: 'transform 0.1s' }}
                   />
                 ) : originalUrl ? (
                   <img 
                     src={originalUrl} 
                     alt="Original"
                     className="preview-img"
+                    style={{ transform: `scale(${leftScale})`, transition: 'transform 0.1s' }}
                   />
                 ) : (
                   <div className="preview-placeholder">
@@ -3696,15 +3710,17 @@ function BatchPreviewModal({ task, onClose }: BatchPreviewModalProps) {
             </div>
             <div className="preview-panel">
               <div className="preview-label">
-                {task.status === 'success' ? '处理后' : '原图'}
+                {task.status === 'success' ? '处理后 (滚轮缩放)' : '原图 (滚轮缩放)'}
               </div>
-              <div className="preview-image-wrapper">
+              <div className="preview-image-wrapper" onWheel={(e) => handleWheel(e, 'right')}>
                 {task.processedImage ? (
                   <img 
                     src={task.processedImage} 
                     alt="Processed"
                     className="preview-img"
                     style={{ 
+                      transform: `scale(${rightScale})`,
+                      transition: 'transform 0.1s',
                       background: 'repeating-conic-gradient(#e5e7eb 0% 25%, #f3f4f6 0% 50%) 50% / 20px 20px'
                     }}
                   />
@@ -3713,6 +3729,7 @@ function BatchPreviewModal({ task, onClose }: BatchPreviewModalProps) {
                     src={originalUrl} 
                     alt="Original"
                     className="preview-img"
+                    style={{ transform: `scale(${rightScale})`, transition: 'transform 0.1s' }}
                   />
                 ) : (
                   <div className="preview-placeholder">

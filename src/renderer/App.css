@@ -1041,6 +1041,10 @@ body {
   z-index: 1000;
 }
 
+.modal-overlay-blocking {
+  pointer-events: auto !important;
+}
+
 .modal {
   background: var(--surface-color);
   border-radius: var(--radius-lg);
