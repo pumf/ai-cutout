@@ -1163,7 +1163,21 @@ function App() {
           return new File([byteArray], item.name, { type: item.type });
         });
         
-        const newTasks: BatchTask[] = files.map(file => ({
+        // Filter out GIF files
+        const validFiles = files.filter(file => {
+          const isGif = file.type === 'image/gif' || file.name.toLowerCase().endsWith('.gif');
+          if (isGif) {
+            showToast(`已跳过 GIF 文件: ${file.name}`, 'info');
+          }
+          return !isGif;
+        });
+        
+        if (validFiles.length === 0) {
+          showToast('未选择有效的图片文件（不支持 GIF）', 'error');
+          return;
+        }
+        
+        const newTasks: BatchTask[] = validFiles.map(file => ({
           id: Math.random().toString(36).substr(2, 9),
           file,
           fileName: file.name,
@@ -2792,8 +2806,8 @@ function App() {
 
       {/* Batch Processing Dialog */}
       {showBatchDialog && (
-        <div className="modal-overlay" onClick={handleBatchDialogClose}>
-          <div className="modal modal-batch" onClick={e => e.stopPropagation()}>
+        <div className="modal-overlay" style={{ pointerEvents: 'none' }}>
+          <div className="modal modal-batch resizable-modal" style={{ pointerEvents: 'auto' }}>
             <div className="modal-header">
               <h3>批量抠图</h3>
               <button className="modal-close" onClick={handleBatchDialogClose}>×</button>
@@ -2995,59 +3009,10 @@ function App() {
 
       {/* Batch Preview Modal */}
       {showBatchPreview && selectedBatchTask && (
-        <div className="modal-overlay" onClick={() => setShowBatchPreview(false)}>
-          <div className="modal modal-preview" onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3>图片预览 - {selectedBatchTask.fileName}</h3>
-              <button className="modal-close" onClick={() => setShowBatchPreview(false)}>×</button>
-            </div>
-            <div className="modal-content preview-content">
-              <div className="preview-comparison">
-                <div className="preview-panel">
-                  <div className="preview-label">原始图片</div>
-                  <div className="preview-image-wrapper">
-                    {selectedBatchTask.originalImage ? (
-                      <img 
-                        src={selectedBatchTask.originalImage} 
-                        alt="Original"
-                        className="preview-img"
-                      />
-                    ) : (
-                      <div className="preview-placeholder">
-                        <span>暂无原始图片</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-                <div className="preview-panel">
-                  <div className="preview-label">
-                    {selectedBatchTask.status === 'success' ? '处理后' : '处理中...'}
-                  </div>
-                  <div className="preview-image-wrapper">
-                    {selectedBatchTask.processedImage ? (
-                      <img 
-                        src={selectedBatchTask.processedImage} 
-                        alt="Processed"
-                        className="preview-img"
-                        style={{ 
-                          background: 'repeating-conic-gradient(#e5e7eb 0% 25%, #f3f4f6 0% 50%) 50% / 20px 20px'
-                        }}
-                      />
-                    ) : (
-                      <div className="preview-placeholder">
-                        <span>
-                          {selectedBatchTask.status === 'processing' ? '处理中...' : 
-                           selectedBatchTask.status === 'pending' ? '等待处理' : 
-                           selectedBatchTask.status === 'error' ? '处理失败' : '准备处理'}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
+        <BatchPreviewModal 
+          task={selectedBatchTask}
+          onClose={() => setShowBatchPreview(false)}
+        />
       )}
 
       <main className="main">
@@ -3669,6 +3634,100 @@ function App() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// Batch Preview Modal Component
+interface BatchPreviewModalProps {
+  task: {
+    id: string;
+    file: File;
+    fileName: string;
+    status: 'pending' | 'processing' | 'success' | 'error' | 'retrying';
+    originalImage?: string;
+    processedImage?: string;
+  };
+  onClose: () => void;
+}
+
+function BatchPreviewModal({ task, onClose }: BatchPreviewModalProps) {
+  const [originalUrl, setOriginalUrl] = useState<string | null>(null);
+  
+  useEffect(() => {
+    // Create object URL from file for preview
+    if (task.file) {
+      const url = URL.createObjectURL(task.file);
+      setOriginalUrl(url);
+      return () => URL.revokeObjectURL(url);
+    }
+  }, [task.file]);
+  
+  return (
+    <div className="modal-overlay" style={{ pointerEvents: 'none' }}>
+      <div className="modal modal-preview resizable-modal" style={{ pointerEvents: 'auto' }}>
+        <div className="modal-header">
+          <h3>图片预览 - {task.fileName}</h3>
+          <button className="modal-close" onClick={onClose}>×</button>
+        </div>
+        <div className="modal-content preview-content">
+          <div className="preview-comparison">
+            <div className="preview-panel">
+              <div className="preview-label">原始图片</div>
+              <div className="preview-image-wrapper">
+                {task.originalImage ? (
+                  <img 
+                    src={task.originalImage} 
+                    alt="Original"
+                    className="preview-img"
+                  />
+                ) : originalUrl ? (
+                  <img 
+                    src={originalUrl} 
+                    alt="Original"
+                    className="preview-img"
+                  />
+                ) : (
+                  <div className="preview-placeholder">
+                    <span>暂无原始图片</span>
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="preview-panel">
+              <div className="preview-label">
+                {task.status === 'success' ? '处理后' : '原图'}
+              </div>
+              <div className="preview-image-wrapper">
+                {task.processedImage ? (
+                  <img 
+                    src={task.processedImage} 
+                    alt="Processed"
+                    className="preview-img"
+                    style={{ 
+                      background: 'repeating-conic-gradient(#e5e7eb 0% 25%, #f3f4f6 0% 50%) 50% / 20px 20px'
+                    }}
+                  />
+                ) : originalUrl ? (
+                  <img 
+                    src={originalUrl} 
+                    alt="Original"
+                    className="preview-img"
+                  />
+                ) : (
+                  <div className="preview-placeholder">
+                    <span>
+                      {task.status === 'processing' ? '处理中...' : 
+                       task.status === 'pending' ? '等待处理' : 
+                       task.status === 'error' ? '处理失败' : '准备处理'}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

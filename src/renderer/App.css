@@ -2013,9 +2013,16 @@ body {
 
 /* Batch Processing Dialog */
 .modal-batch {
-  max-width: 640px;
-  width: 90%;
+  min-width: 600px;
+  min-height: 400px;
   max-height: 90vh;
+  resize: both;
+  overflow: hidden;
+}
+
+.resizable-modal {
+  resize: both;
+  overflow: hidden;
 }
 
 .batch-content {
@@ -2336,8 +2343,11 @@ body {
 
 /* Batch Preview Modal */
 .modal-preview {
-  width: 900px;
-  max-height: 80vh;
+  min-width: 700px;
+  min-height: 500px;
+  max-height: 90vh;
+  resize: both;
+  overflow: hidden;
 }
 
 .preview-content {
