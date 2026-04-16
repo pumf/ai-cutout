@@ -304,6 +304,8 @@ body {
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+  position: relative;
+  z-index: 10;
 }
 
 .toolbar-group {
@@ -594,7 +596,7 @@ body {
   border-radius: var(--radius-lg);
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06), 0 1px 3px rgba(0, 0, 0, 0.04);
   border: 1px solid rgba(203, 213, 225, 0.4);
-  overflow: hidden;
+  overflow: visible;
   transition: box-shadow 0.3s ease;
 }
 
@@ -2039,27 +2041,31 @@ body {
 
 .batch-stats {
   display: flex;
-  gap: 16px;
-  padding: 16px;
+  gap: 12px;
+  padding: 10px 12px;
   background: var(--bg-color);
   border-radius: var(--radius-md);
+  flex-shrink: 0;
 }
 
 .stat-item {
   flex: 1;
   text-align: center;
+  padding: 2px 0;
 }
 
 .stat-value {
   display: block;
-  font-size: 24px;
+  font-size: 20px;
   font-weight: 600;
   color: var(--text-primary);
+  line-height: 1.2;
 }
 
 .stat-label {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--text-secondary);
+  line-height: 1.2;
 }
 
 .stat-item.success .stat-value {
