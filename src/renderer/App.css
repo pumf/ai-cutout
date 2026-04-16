@@ -2482,3 +2482,207 @@ body {
 .btn-error .btn-text {
   color: #ffffff !important;
 }
+
+/* GIF Frames List */
+.gif-frames-list {
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 82px;
+  max-height: calc(100% - 20px);
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(203, 213, 225, 0.5);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.gif-frames-list.processed-frames {
+  left: auto;
+  right: 8px;
+}
+
+.gif-frames-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  padding: 8px 6px 4px;
+  text-align: center;
+  border-bottom: 1px solid rgba(203, 213, 225, 0.3);
+  background: linear-gradient(135deg, rgba(248, 250, 252, 0.8) 0%, rgba(241, 245, 249, 0.8) 100%);
+  flex-shrink: 0;
+}
+
+.gif-frames-container {
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 0, 0, 0.2) transparent;
+}
+
+.gif-frames-container::-webkit-scrollbar {
+  width: 4px;
+}
+
+.gif-frames-container::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.gif-frames-container::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 2px;
+}
+
+.gif-frame-item {
+  width: 100%;
+  max-width: 68px;
+  border-radius: var(--radius-sm);
+  border: 2px solid transparent;
+  cursor: pointer;
+  overflow: hidden;
+  position: relative;
+  transition: all 0.2s ease;
+  background: var(--bg-color);
+  flex-shrink: 0;
+}
+
+.gif-frame-item:hover {
+  border-color: var(--primary-color);
+  transform: scale(1.02);
+  box-shadow: 0 2px 8px rgba(79, 70, 229, 0.3);
+}
+
+.gif-frame-item img {
+  width: 100%;
+  height: auto;
+  display: block;
+  object-fit: contain;
+}
+
+.gif-frame-number {
+  position: absolute;
+  bottom: 2px;
+  right: 2px;
+  font-size: 10px;
+  font-weight: 600;
+  color: white;
+  background: rgba(0, 0, 0, 0.6);
+  padding: 1px 4px;
+  border-radius: 3px;
+  line-height: 1;
+}
+
+/* GIF Frame Preview Modal */
+.modal-gif-frame {
+  width: 90vw;
+  max-width: 1200px;
+  height: 85vh;
+  max-height: 900px;
+}
+
+.gif-frame-content {
+  padding: 20px;
+}
+
+.gif-frame-comparison {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  height: 100%;
+}
+
+.gif-frame-panel {
+  display: flex;
+  flex-direction: column;
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  border: 1px solid rgba(203, 213, 225, 0.5);
+}
+
+.gif-frame-label {
+  padding: 12px 16px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.9) 0%, rgba(248, 250, 252, 0.9) 100%);
+  border-bottom: 1px solid rgba(203, 213, 225, 0.5);
+  font-weight: 600;
+  font-size: 14px;
+  color: #475569;
+  text-align: center;
+}
+
+.gif-frame-image-wrapper {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  min-height: 500px;
+  background: repeating-conic-gradient(#e5e7eb 0% 25%, #f3f4f6 0% 50%) 50% / 16px 16px;
+}
+
+.gif-frame-image-wrapper img {
+  max-width: 100%;
+  max-height: 600px;
+  object-fit: contain;
+  border-radius: var(--radius-md);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+/* GIF Frame Modal Header */
+.gif-frame-header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.gif-frame-scale {
+  font-size: 12px;
+  color: var(--text-secondary);
+  background: rgba(0, 0, 0, 0.05);
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.gif-frame-nav-buttons {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+  margin-right: 16px;
+}
+
+.gif-frame-nav-btn {
+  padding: 6px 12px;
+  border: 1px solid var(--border-color);
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.gif-frame-nav-btn:hover {
+  background: linear-gradient(135deg, #ffffff 0%, #e2e8f0 100%);
+  border-color: var(--primary-color);
+  color: var(--primary-color);
+}
+
+.gif-frame-nav-btn.reset-btn {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(37, 99, 235, 0.1) 100%);
+  border-color: rgba(59, 130, 246, 0.3);
+  color: #2563eb;
+}
+
+.gif-frame-nav-btn.reset-btn:hover {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.2) 0%, rgba(37, 99, 235, 0.2) 100%);
+  border-color: #2563eb;
+}

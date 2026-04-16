@@ -132,6 +132,10 @@ function App() {
   const [isGifProcessing, setIsGifProcessing] = useState(false);
   const [gifProgress, setGifProgress] = useState({ current: 0, total: 0, message: '' });
   const [isOriginalGif, setIsOriginalGif] = useState(false);
+  const [gifOriginalFrames, setGifOriginalFrames] = useState<string[]>([]);
+  const [gifProcessedFrames, setGifProcessedFrames] = useState<string[]>([]);
+  const [selectedGifFrame, setSelectedGifFrame] = useState<number | null>(null);
+  const [showGifFramePreview, setShowGifFramePreview] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
 
   // Use refs for virtual cursor elements to avoid React re-render
@@ -732,6 +736,7 @@ function App() {
       
       // Step 1: Extract all frames first
       const frames: { index: number; base64: string; delay: number }[] = [];
+      const originalFrameUrls: string[] = [];
       
       for (let i = 0; i < numFrames; i++) {
         const frameInfo = gifReader.frameInfo(i);
@@ -750,7 +755,13 @@ function App() {
         
         const frameBase64 = frameCanvas.toDataURL('image/png').replace(/^data:image\/png;base64,/, '');
         frames.push({ index: i, base64: frameBase64, delay: frameInfo.delay });
+        
+        // Save original frame URL for display
+        originalFrameUrls.push(frameCanvas.toDataURL('image/png'));
       }
+      
+      // Store original frames for display
+      setGifOriginalFrames(originalFrameUrls);
       
       // Step 2: Process first frame to determine output size
       showToast('正在处理第 1 帧 (确定输出尺寸)...', 'info');
@@ -1078,6 +1089,32 @@ function App() {
       const url = URL.createObjectURL(blob);
       setProcessedImage(url);
       setIsOriginalGif(true);
+      
+      // Generate processed frame URLs for display
+      const processedFrameUrls: string[] = [];
+      for (const frame of processedFrames) {
+        const frameCanvas = document.createElement('canvas');
+        frameCanvas.width = frame.width;
+        frameCanvas.height = frame.height;
+        const frameCtx = frameCanvas.getContext('2d');
+        if (frameCtx) {
+          // Reconstruct image from indices and palette
+          const imageData = frameCtx.createImageData(frame.width, frame.height);
+          for (let i = 0; i < frame.indices.length; i++) {
+            const idx = frame.indices[i];
+            if (idx < frame.palette.length / 3) {
+              imageData.data[i * 4] = frame.palette[idx * 3];
+              imageData.data[i * 4 + 1] = frame.palette[idx * 3 + 1];
+              imageData.data[i * 4 + 2] = frame.palette[idx * 3 + 2];
+              imageData.data[i * 4 + 3] = idx === frame.transparentIndex ? 0 : 255;
+            }
+          }
+          frameCtx.putImageData(imageData, 0, 0);
+          processedFrameUrls.push(frameCanvas.toDataURL('image/png'));
+        }
+      }
+      setGifProcessedFrames(processedFrameUrls);
+      
       showToast('GIF 抠图完成！', 'success');
     } catch (err) {
       if ((err as Error).message === 'Cancelled') {
@@ -1748,6 +1785,19 @@ function App() {
     setOriginalImage(imageUrl);
     setProcessedImage(null);
     
+    // Clear previous processed frames when loading any new image
+    setGifProcessedFrames([]);
+    
+    // Clear previous GIF frames if not a GIF
+    if (!imageUrl.startsWith('data:image/gif')) {
+      setIsOriginalGif(false);
+      setGifOriginalFrames([]);
+    } else {
+      // Extract GIF frames immediately when loading a GIF
+      setIsOriginalGif(true);
+      extractGifFrames(imageUrl);
+    }
+    
     // Auto-fit image to panel
     const img = new Image();
     img.onload = () => {
@@ -1785,6 +1835,47 @@ function App() {
       showToast('图片已加载，准备开始AI抠图', 'success');
     };
     img.src = imageUrl;
+  };
+  
+  // Extract GIF frames for display
+  const extractGifFrames = async (imageUrl: string) => {
+    try {
+      // Convert data URL to ArrayBuffer
+      const base64Data = imageUrl.split(',')[1];
+      const binaryString = window.atob(base64Data);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+      
+      const gifReader = new GifReader(bytes);
+      const numFrames = gifReader.numFrames();
+      const width = gifReader.width;
+      const height = gifReader.height;
+      
+      const frameUrls: string[] = [];
+      
+      for (let i = 0; i < numFrames; i++) {
+        const frameInfo = gifReader.frameInfo(i);
+        const pixels = new Uint8Array(width * height * 4);
+        gifReader.decodeAndBlitFrameRGBA(i, pixels);
+        
+        const frameCanvas = document.createElement('canvas');
+        frameCanvas.width = width;
+        frameCanvas.height = height;
+        const frameCtx = frameCanvas.getContext('2d');
+        if (frameCtx) {
+          const imageData = frameCtx.createImageData(width, height);
+          imageData.data.set(pixels);
+          frameCtx.putImageData(imageData, 0, 0);
+          frameUrls.push(frameCanvas.toDataURL('image/png'));
+        }
+      }
+      
+      setGifOriginalFrames(frameUrls);
+    } catch (error) {
+      console.error('Failed to extract GIF frames:', error);
+    }
   };
 
   // Confirm paste and replace
@@ -2553,6 +2644,15 @@ function App() {
           </div>
         </div>
       )}
+
+      {/* GIF Frame Preview Modal */}
+      <GifFramePreviewModal
+        isOpen={showGifFramePreview}
+        onClose={() => setShowGifFramePreview(false)}
+        frameIndex={selectedGifFrame}
+        originalFrames={gifOriginalFrames}
+        processedFrames={gifProcessedFrames}
+      />
 
       {showHelp && (
         <div className="modal-overlay" onClick={() => setShowHelp(false)}>
@@ -3365,6 +3465,31 @@ function App() {
                   }}
                 />
               )}
+              {/* GIF Original Frames List */}
+              {isOriginalGif && gifOriginalFrames.length > 0 && (
+                <div 
+                  className="gif-frames-list original-frames"
+                  onWheel={(e) => e.stopPropagation()}
+                >
+                  <div className="gif-frames-title">原图帧 ({gifOriginalFrames.length})</div>
+                  <div className="gif-frames-container">
+                    {gifOriginalFrames.map((frameUrl, index) => (
+                      <div
+                        key={`orig-${index}`}
+                        className="gif-frame-item"
+                        onClick={() => {
+                          setSelectedGifFrame(index);
+                          setShowGifFramePreview(true);
+                        }}
+                        title={`第 ${index + 1} 帧`}
+                      >
+                        <img src={frameUrl} alt={`Frame ${index + 1}`} />
+                        <span className="gif-frame-number">{index + 1}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
               {!originalImage && (
                 <div className="drop-zone" onClick={handleSelectImage} style={{ cursor: 'pointer' }}>
                   <div className="drop-zone-icon">📤</div>
@@ -3494,6 +3619,31 @@ function App() {
                     backgroundColor: isAdjustingBrush ? 'rgba(59, 130, 246, 0.3)' : (editMode === 'erase' ? 'rgba(239, 68, 68, 0.3)' : 'rgba(34, 197, 94, 0.3)')
                   }}
                 />
+              )}
+              {/* GIF Processed Frames List */}
+              {isOriginalGif && gifProcessedFrames.length > 0 && (
+                <div 
+                  className="gif-frames-list processed-frames"
+                  onWheel={(e) => e.stopPropagation()}
+                >
+                  <div className="gif-frames-title">处理后帧 ({gifProcessedFrames.length})</div>
+                  <div className="gif-frames-container">
+                    {gifProcessedFrames.map((frameUrl, index) => (
+                      <div
+                        key={`proc-${index}`}
+                        className="gif-frame-item"
+                        onClick={() => {
+                          setSelectedGifFrame(index);
+                          setShowGifFramePreview(true);
+                        }}
+                        title={`第 ${index + 1} 帧`}
+                      >
+                        <img src={frameUrl} alt={`Frame ${index + 1}`} />
+                        <span className="gif-frame-number">{index + 1}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               )}
               {!processedImage && (
                 <div className="empty-result">
@@ -3779,6 +3929,197 @@ function BatchPreviewModal({ task, onClose }: BatchPreviewModalProps) {
                 )}
               </div>
             </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// GIF Frame Preview Modal Component
+
+// GIF Frame Preview Modal Component - Improved version
+interface GifFramePreviewModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  frameIndex: number | null;
+  originalFrames: string[];
+  processedFrames: string[];
+}
+
+function GifFramePreviewModal({ isOpen, onClose, frameIndex, originalFrames, processedFrames }: GifFramePreviewModalProps) {
+  const [currentIndex, setCurrentIndex] = useState(frameIndex || 0);
+  const [scale, setScale] = useState(1);
+  const [origin, setOrigin] = useState({ x: 50, y: 50 });
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const [translate, setTranslate] = useState({ x: 0, y: 0 });
+  const containerRef = useRef<HTMLDivElement>(null);
+  
+  const totalFrames = Math.max(originalFrames.length, processedFrames.length);
+  const originalUrl = originalFrames[currentIndex];
+  const processedUrl = processedFrames[currentIndex];
+  
+  // Reset state when opening
+  useEffect(() => {
+    if (isOpen && frameIndex !== null) {
+      setCurrentIndex(frameIndex);
+      setScale(1);
+      setOrigin({ x: 50, y: 50 });
+      setTranslate({ x: 0, y: 0 });
+    }
+  }, [isOpen, frameIndex]);
+  
+  // Keyboard navigation
+  useEffect(() => {
+    if (!isOpen) return;
+    
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') {
+        e.preventDefault();
+        goToPrevFrame();
+      } else if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
+        e.preventDefault();
+        goToNextFrame();
+      } else if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, currentIndex, totalFrames]);
+  
+  const goToPrevFrame = () => {
+    setCurrentIndex((prev: number) => (prev > 0 ? prev - 1 : totalFrames - 1));
+    resetView();
+  };
+  
+  const goToNextFrame = () => {
+    setCurrentIndex((prev: number) => (prev < totalFrames - 1 ? prev + 1 : 0));
+    resetView();
+  };
+  
+  const resetView = () => {
+    setScale(1);
+    setOrigin({ x: 50, y: 50 });
+    setTranslate({ x: 0, y: 0 });
+  };
+  
+  const handleWheel = (e: React.WheelEvent) => {
+    e.preventDefault();
+    
+    if (!containerRef.current) return;
+    
+    const rect = containerRef.current.getBoundingClientRect();
+    const mouseX = ((e.clientX - rect.left) / rect.width) * 100;
+    const mouseY = ((e.clientY - rect.top) / rect.height) * 100;
+    
+    const delta = e.deltaY > 0 ? 0.9 : 1.1;
+    const newScale = Math.max(0.1, Math.min(5, scale * delta));
+    
+    setScale(newScale);
+    setOrigin({ x: mouseX, y: mouseY });
+  };
+  
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (scale > 1) {
+      setIsDragging(true);
+      setDragStart({ x: e.clientX - translate.x, y: e.clientY - translate.y });
+    }
+  };
+  
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (isDragging) {
+      setTranslate({
+        x: e.clientX - dragStart.x,
+        y: e.clientY - dragStart.y
+      });
+    }
+  };
+  
+  const handleMouseUp = () => {
+    setIsDragging(false);
+  };
+  
+  if (!isOpen) return null;
+  
+  const imageStyle: React.CSSProperties = {
+    transform: `scale(${scale}) translate(${translate.x / scale}px, ${translate.y / scale}px)`,
+    transformOrigin: `${origin.x}% ${origin.y}%`,
+    cursor: scale > 1 ? (isDragging ? 'grabbing' : 'grab') : 'default',
+    willChange: 'transform'
+  };
+  
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal modal-gif-frame" onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <div className="gif-frame-header-left">
+            <h3>第 {currentIndex + 1} / {totalFrames} 帧</h3>
+            <span className="gif-frame-scale">缩放: {Math.round(scale * 100)}%</span>
+          </div>
+          <div className="gif-frame-nav-buttons">
+            <button 
+              className="gif-frame-nav-btn" 
+              onClick={goToPrevFrame}
+              title="上一帧 (↑/←)"
+            >
+              ◀ 上一帧
+            </button>
+            <button 
+              className="gif-frame-nav-btn" 
+              onClick={goToNextFrame}
+              title="下一帧 (↓/→)"
+            >
+              下一帧 ▶
+            </button>
+            <button 
+              className="gif-frame-nav-btn reset-btn" 
+              onClick={resetView}
+              title="重置视图"
+            >
+              ⟲ 重置
+            </button>
+          </div>
+          <button className="modal-close" onClick={onClose}>×</button>
+        </div>
+        <div className="modal-content gif-frame-content">
+          <div 
+            className="gif-frame-comparison"
+            ref={containerRef}
+            onWheel={handleWheel}
+            onMouseDown={handleMouseDown}
+            onMouseMove={handleMouseMove}
+            onMouseUp={handleMouseUp}
+            onMouseLeave={handleMouseUp}
+          >
+            {originalUrl && (
+              <div className="gif-frame-panel">
+                <div className="gif-frame-label">原图 (滚轮缩放)</div>
+                <div className="gif-frame-image-wrapper">
+                  <img 
+                    src={originalUrl}
+                    alt={`Original Frame ${currentIndex + 1}`}
+                    style={imageStyle}
+                    draggable={false}
+                  />
+                </div>
+              </div>
+            )}
+            {processedUrl && (
+              <div className="gif-frame-panel">
+                <div className="gif-frame-label">处理后 (滚轮缩放)</div>
+                <div className="gif-frame-image-wrapper">
+                  <img 
+                    src={processedUrl}
+                    alt={`Processed Frame ${currentIndex + 1}`}
+                    style={imageStyle}
+                    draggable={false}
+                  />
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
