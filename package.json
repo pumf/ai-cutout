@@ -52,7 +52,7 @@
         "to": "backend"
       },
       {
-        "from": "venv-x64",
+        "from": "venv-minimal",
         "to": "venv"
       },
       {
