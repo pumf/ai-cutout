@@ -9,6 +9,34 @@ let viteServer: any = null;
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 
+// Setup logging to file
+const logDir = path.join(app.getPath('userData'), 'logs');
+if (!fs.existsSync(logDir)) {
+  fs.mkdirSync(logDir, { recursive: true });
+}
+const logFile = path.join(logDir, 'main.log');
+
+// Redirect console.log to file in production
+if (app.isPackaged) {
+  const logStream = fs.createWriteStream(logFile, { flags: 'a' });
+  const originalLog = console.log;
+  const originalError = console.error;
+  
+  console.log = (...args: any[]) => {
+    const message = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
+    logStream.write(`[${new Date().toISOString()}] LOG: ${message}\n`);
+    originalLog.apply(console, args);
+  };
+  
+  console.error = (...args: any[]) => {
+    const message = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
+    logStream.write(`[${new Date().toISOString()}] ERROR: ${message}\n`);
+    originalError.apply(console, args);
+  };
+  
+  console.log('Logging to:', logFile);
+}
+
 // Check if Python dependencies are installed
 const checkPythonDependencies = (pythonCmd: string): boolean => {
   try {
@@ -19,8 +47,49 @@ const checkPythonDependencies = (pythonCmd: string): boolean => {
   }
 };
 
-// Install Python dependencies automatically
+// Check if we're using embedded venv (not system Python)
+const isEmbeddedVenv = (pythonCmd: string): boolean => {
+  return app.isPackaged && pythonCmd.includes('venv');
+};
+
+// Install Python dependencies automatically (only for system Python, not embedded venv)
 const installPythonDependencies = async (pythonCmd: string): Promise<boolean> => {
+  // If using embedded venv, don't show dialog - dependencies should be pre-installed
+  if (isEmbeddedVenv(pythonCmd)) {
+    console.log('Using embedded venv, skipping dependency installation dialog');
+    // Try to install silently in background
+    return new Promise((resolve) => {
+      const deps = 'torch torchvision numpy pillow onnxruntime fastapi uvicorn python-multipart python-json-logger';
+      const installProcess = spawn(pythonCmd, ['-m', 'pip', 'install', ...deps.split(' ')], {
+        stdio: 'pipe',
+        shell: true,
+      });
+
+      let output = '';
+      installProcess.stdout.on('data', (data) => {
+        output += data.toString();
+        console.log('[pip install]:', data.toString());
+      });
+
+      installProcess.stderr.on('data', (data) => {
+        output += data.toString();
+        console.error('[pip install error]:', data.toString());
+      });
+
+      installProcess.on('close', (code) => {
+        if (code === 0) {
+          console.log('Dependencies installed successfully');
+          resolve(true);
+        } else {
+          console.error('Failed to install dependencies:', output);
+          // Don't show error for embedded venv - just log it
+          resolve(false);
+        }
+      });
+    });
+  }
+
+  // For system Python, show dialog
   return new Promise((resolve) => {
     const deps = 'torch torchvision numpy pillow onnxruntime fastapi uvicorn python-multipart python-json-logger';
     
@@ -111,46 +180,12 @@ const getPythonCmd = () => {
   const venvBinDir = isWin ? 'Scripts' : 'bin';
 
   if (app.isPackaged) {
-    // Try architecture-specific venv first (e.g., venv-x64, venv-arm64)
-    const archSpecificVenv = path.join(
-      process.resourcesPath,
-      `venv-${arch}`,
-      venvBinDir,
-      venvPythonName
-    );
-    if (fs.existsSync(archSpecificVenv)) {
-      console.log(`Using arch-specific venv for ${arch}:`, archSpecificVenv);
-      return archSpecificVenv;
-    }
-
-    // Check if generic venv exists and is compatible
-    const genericVenvPath = path.join(process.resourcesPath, 'venv', venvBinDir, venvPythonName);
-    if (fs.existsSync(genericVenvPath)) {
-      // On macOS, check if the venv architecture matches
-      if (platform === 'darwin') {
-        try {
-          // Check the architecture of the Python binary
-          const pythonBinary = path.join(process.resourcesPath, 'venv', venvBinDir, 'python3');
-          const fileInfo = require('child_process').execSync(`file "${pythonBinary}"`, { encoding: 'utf8' });
-          console.log('Venv Python binary info:', fileInfo);
-          
-          // Check if architectures match
-          const isArm64 = fileInfo.includes('arm64');
-          const isX86_64 = fileInfo.includes('x86_64');
-          
-          if ((arch === 'arm64' && isArm64) || (arch === 'x64' && isX86_64)) {
-            console.log('Using generic venv (architecture matches):', genericVenvPath);
-            return genericVenvPath;
-          } else {
-            console.log(`Architecture mismatch: running on ${arch}, venv is ${isArm64 ? 'arm64' : (isX86_64 ? 'x86_64' : 'unknown')}`);
-          }
-        } catch (error) {
-          console.log('Could not determine venv architecture, will try system Python');
-        }
-      } else {
-        console.log('Using generic venv:', genericVenvPath);
-        return genericVenvPath;
-      }
+    // Use universal venv (venv-x64 repackaged as venv)
+    // venv-x64 is a universal binary supporting both x86_64 and arm64
+    const venvPath = path.join(process.resourcesPath, 'venv', venvBinDir, venvPythonName);
+    if (fs.existsSync(venvPath)) {
+      console.log(`Using venv:`, venvPath);
+      return venvPath;
     }
 
     // Fall back to system Python
@@ -232,10 +267,25 @@ async function startPythonBackend(): Promise<void> {
     throw new Error(`Backend not found at: ${backendPath}`);
   }
 
+  // Check if Python exists
+  if (!fs.existsSync(pythonCmd) && !pythonCmd.includes('python3')) {
+    throw new Error(`Python not found at: ${pythonCmd}`);
+  }
+
   console.log('Starting Python backend...');
   console.log('Python command:', pythonCmd);
   console.log('Backend path:', backendPath);
   console.log('Architecture:', process.arch);
+  console.log('Resources path:', process.resourcesPath);
+  
+  // Verify Python works
+  try {
+    const testResult = require('child_process').execSync(`"${pythonCmd}" --version`, { encoding: 'utf8' });
+    console.log('Python version:', testResult.trim());
+  } catch (e) {
+    console.error('Python test failed:', e);
+    throw new Error(`Python test failed: ${pythonCmd}`);
+  }
 
   // Delete old port file if exists
   const portFile = app.isPackaged
@@ -249,14 +299,24 @@ async function startPythonBackend(): Promise<void> {
   return new Promise((resolve, reject) => {
     let isStarted = false;
     let errorOutput = '';
+    const startTime = Date.now();
+    const timeoutMs = 30000; // 30 seconds timeout
 
-    pythonProcess = spawn(pythonCmd, [backendPath], {
+    // Use array format for spawn to avoid shell escaping issues
+    const spawnArgs = [backendPath];
+    console.log('Spawning Python:', pythonCmd, spawnArgs.join(' '));
+
+    pythonProcess = spawn(pythonCmd, spawnArgs, {
       stdio: 'pipe',
-      shell: true,
+      shell: false, // Don't use shell to avoid escaping issues
       cwd: app.isPackaged
         ? path.join(process.resourcesPath, 'backend')
         : path.join(appPath, 'backend'),
-      env: { ...process.env, PYTHONPATH: process.resourcesPath }
+      env: { 
+        ...process.env, 
+        PYTHONPATH: process.resourcesPath,
+        PYTHONUNBUFFERED: '1' // Ensure Python output is not buffered
+      }
     });
 
     // Function to check if server is ready
@@ -329,19 +389,26 @@ async function startPythonBackend(): Promise<void> {
     pythonProcess.on('close', (code: number) => {
       console.log(`Python backend exited with code ${code}`);
       if (!isStarted && code !== 0) {
-        reject(new Error(`Python backend exited with code ${code}. Error: ${errorOutput}`));
+        console.error('Backend exit error output:', errorOutput);
+        reject(new Error(`Python backend exited with code ${code}. Error: ${errorOutput || 'Unknown error'}`));
       }
     });
 
-    // Timeout after 30 seconds (increased from 15)
-    setTimeout(() => {
-      if (!isStarted) {
+    // Timeout check with better logging
+    const timeoutId = setInterval(() => {
+      const elapsed = Date.now() - startTime;
+      if (!isStarted && elapsed > timeoutMs) {
+        clearInterval(timeoutId);
         if (pythonProcess) {
           pythonProcess.kill();
         }
-        reject(new Error('Python backend failed to start within 30 seconds'));
+        console.error('Backend startup timeout. Error output:', errorOutput);
+        reject(new Error(`Python backend failed to start within ${timeoutMs}ms. Error: ${errorOutput || 'No error output captured'}`));
+      } else if (!isStarted && elapsed > 10000) {
+        // Log progress after 10 seconds
+        console.log(`Waiting for backend... ${elapsed}ms elapsed`);
       }
-    }, 30000);
+    }, 1000);
   });
 }
 
@@ -381,10 +448,36 @@ async function createWindow() {
     mainWindow.webContents.openDevTools();
     } else {
     const pythonCmd = getPythonCmd();
-    const isUsingSystemPython = pythonCmd === 'python3' || pythonCmd === 'python';
+    const usingEmbeddedVenv = isEmbeddedVenv(pythonCmd);
+    const isUsingSystemPython = !usingEmbeddedVenv && (pythonCmd === 'python3' || pythonCmd === 'python');
     
-    // Check if using system Python and dependencies are missing
-    if (isUsingSystemPython && !checkPythonDependencies(pythonCmd)) {
+    console.log('Python command:', pythonCmd);
+    console.log('Using embedded venv:', usingEmbeddedVenv);
+    console.log('Using system Python:', isUsingSystemPython);
+    
+    // For embedded venv, always try to start backend directly (dependencies should be pre-installed)
+    if (usingEmbeddedVenv) {
+      console.log('Using embedded venv, starting backend directly...');
+      try {
+        await startPythonBackend();
+        console.log('Python backend started successfully with embedded venv');
+      } catch (error) {
+        console.error('Failed to start Python backend with embedded venv:', error);
+        
+        // Show error to user for Intel Mac
+        if (process.arch === 'x64') {
+          dialog.showErrorBox(
+            '后端启动失败',
+            `无法启动 Python 后端:\n${error}\n\n请尝试以下解决方案:\n1. 重新安装应用\n2. 或者安装系统 Python 3.9+ 并手动安装依赖: pip install torch torchvision numpy pillow onnxruntime fastapi uvicorn python-multipart python-json-logger`
+          );
+        }
+      }
+      
+      const distPath = getDistPath();
+      mainWindow.loadFile(path.join(distPath, 'index.html'));
+    }
+    // For system Python, check dependencies
+    else if (isUsingSystemPython && !checkPythonDependencies(pythonCmd)) {
       console.log('Python dependencies not found, prompting user to install...');
       
       // Load the UI first
@@ -410,7 +503,7 @@ async function createWindow() {
         }
       });
     } else {
-      // Dependencies are installed or using embedded venv, start backend normally
+      // Dependencies are installed, start backend normally
       try {
         await startPythonBackend();
         console.log('Python backend started successfully');
@@ -675,11 +768,13 @@ ipcMain.handle('get-backend-port', () => {
 // Check Python dependencies status
 ipcMain.handle('check-python-deps', async () => {
   const pythonCmd = getPythonCmd();
-  const isUsingSystemPython = pythonCmd === 'python3' || pythonCmd === 'python';
+  const usingEmbeddedVenv = isEmbeddedVenv(pythonCmd);
+  const isUsingSystemPython = !usingEmbeddedVenv && (pythonCmd === 'python3' || pythonCmd === 'python');
   const hasDeps = checkPythonDependencies(pythonCmd);
   
   return {
     usingSystemPython: isUsingSystemPython,
+    usingEmbeddedVenv: usingEmbeddedVenv,
     hasDependencies: hasDeps,
     pythonCommand: pythonCmd,
   };

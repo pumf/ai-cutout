@@ -52,15 +52,7 @@
         "to": "backend"
       },
       {
-        "from": "venv-arm64",
-        "to": "venv-arm64"
-      },
-      {
         "from": "venv-x64",
-        "to": "venv-x64"
-      },
-      {
-        "from": "venv-minimal",
         "to": "venv"
       },
       {

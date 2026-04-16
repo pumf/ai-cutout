@@ -1,0 +1,143 @@
+name: Build and Test Intel Mac Version
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  build-intel-mac:
+    runs-on: macos-13  # macos-13 is Intel (x86_64), macos-14 is ARM
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        
+    - name: Install dependencies
+      run: npm install
+      
+    - name: Setup Python 3.9
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.9'
+        
+    - name: Create Python venv for Intel Mac
+      run: |
+        echo "Creating venv for Intel Mac..."
+        python3 -m venv venv-x64
+        source venv-x64/bin/activate
+        pip install --upgrade pip
+        pip install torch torchvision numpy pillow onnxruntime fastapi uvicorn python-multipart python-json-logger
+        
+        echo "Verifying installation..."
+        python --version
+        python -c "import torch; print(f'PyTorch: {torch.__version__}')"
+        python -c "import onnxruntime; print(f'ONNX Runtime: {onnxruntime.__version__}')"
+        python -c "import fastapi; print(f'FastAPI: {fastapi.__version__}')"
+        
+    - name: Build Electron app
+      run: npm run build
+      
+    - name: Build Intel Mac DMG
+      run: npx electron-builder --mac --x64
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        
+    - name: Verify DMG contents
+      run: |
+        echo "Checking DMG contents..."
+        ls -lh release/*.dmg
+        
+        # Mount DMG and check contents
+        hdiutil attach release/小飞AI抠图-1.0.3.dmg -mountpoint /Volumes/test-mount -nobrowse
+        
+        echo "Checking Python architecture..."
+        file "/Volumes/test-mount/小飞AI抠图.app/Contents/Resources/venv/bin/python3"
+        
+        echo "Checking model files..."
+        ls -lh "/Volumes/test-mount/小飞AI抠图.app/Contents/Resources/model_files/"
+        
+        hdiutil detach /Volumes/test-mount
+        
+    - name: Test backend startup
+      run: |
+        echo "Testing backend startup..."
+        hdiutil attach release/小飞AI抠图-1.0.3.dmg -mountpoint /Volumes/test-mount -nobrowse
+        
+        APP_PATH="/Volumes/test-mount/小飞AI抠图.app"
+        PYTHON_PATH="$APP_PATH/Contents/Resources/venv/bin/python3"
+        BACKEND_PATH="$APP_PATH/Contents/Resources/backend/main.py"
+        
+        echo "Testing Python..."
+        "$PYTHON_PATH" --version
+        
+        echo "Testing imports..."
+        "$PYTHON_PATH" -c "import torch, onnxruntime, fastapi, uvicorn, numpy, PIL; print('All imports successful')"
+        
+        echo "Starting backend..."
+        cd "$APP_PATH/Contents/Resources/backend"
+        "$PYTHON_PATH" main.py &
+        BACKEND_PID=$!
+        
+        echo "Waiting for backend to start..."
+        sleep 10
+        
+        echo "Testing API..."
+        curl -s http://127.0.0.1:8765/models/fixed | head -100 || echo "Backend not responding"
+        
+        echo "Stopping backend..."
+        kill $BACKEND_PID 2>/dev/null || true
+        
+        hdiutil detach /Volumes/test-mount
+        
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: intel-mac-build
+        path: release/小飞AI抠图-1.0.3.dmg
+        retention-days: 7
+        
+  test-on-arm-mac:
+    runs-on: macos-14  # ARM Mac to test if universal binary works
+    needs: build-intel-mac
+    
+    steps:
+    - name: Download build artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: intel-mac-build
+        path: release/
+        
+    - name: Test on ARM Mac (Rosetta 2)
+      run: |
+        echo "Testing Intel build on ARM Mac via Rosetta 2..."
+        
+        # Check if Rosetta 2 is installed
+        if ! /usr/bin/pgrep oahd > /dev/null; then
+          echo "Rosetta 2 not installed, installing..."
+          softwareupdate --install-rosetta --agree-to-license
+        fi
+        
+        # Mount DMG
+        hdiutil attach release/小飞AI抠图-1.0.3.dmg -mountpoint /Volumes/test-mount -nobrowse
+        
+        APP_PATH="/Volumes/test-mount/小飞AI抠图.app"
+        PYTHON_PATH="$APP_PATH/Contents/Resources/venv/bin/python3"
+        
+        echo "Checking Python architecture..."
+        file "$PYTHON_PATH"
+        
+        echo "Testing Python via Rosetta..."
+        arch -x86_64 "$PYTHON_PATH" --version
+        
+        echo "Testing imports via Rosetta..."
+        arch -x86_64 "$PYTHON_PATH" -c "import torch, onnxruntime, fastapi; print('All imports successful via Rosetta')"
+        
+        hdiutil detach /Volumes/test-mount
