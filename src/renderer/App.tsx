@@ -2987,8 +2987,8 @@ function App() {
 
       <main className="main">
         <div className="toolbar">
-          {/* 文件操作组 */}
-          <div className="toolbar-group">
+          {/* 主要操作组：选择、抠图、导出、复制 */}
+          <div className="toolbar-group main-actions">
             <button
               className="btn btn-primary"
               onClick={handleSelectImage}
@@ -2997,22 +2997,6 @@ function App() {
               <span className="btn-icon">📁</span>
               <span className="btn-text">选择</span>
             </button>
-          </div>
-
-          {/* 批量处理组 */}
-          <div className="toolbar-group batch-group">
-            <button
-              className="btn btn-secondary batch-btn"
-              onClick={() => setShowBatchDialog(true)}
-              title="批量处理多张图片"
-            >
-              <span className="btn-icon">📂</span>
-              <span className="btn-text">批量抠图</span>
-            </button>
-          </div>
-
-          {/* 主要操作组 */}
-          <div className="toolbar-group main-actions">
             {isGifProcessing ? (
               <button
                 className="btn btn-error"
@@ -3058,6 +3042,18 @@ function App() {
             >
               <span className="btn-icon">📋</span>
               <span className="btn-text">复制</span>
+            </button>
+          </div>
+
+          {/* 批量处理组 */}
+          <div className="toolbar-group batch-group">
+            <button
+              className="btn btn-secondary batch-btn"
+              onClick={() => setShowBatchDialog(true)}
+              title="批量处理多张图片"
+            >
+              <span className="btn-icon">📂</span>
+              <span className="btn-text">批量抠图</span>
             </button>
           </div>
 
@@ -3631,10 +3627,48 @@ interface BatchPreviewModalProps {
 
 function BatchPreviewModal({ task, onClose }: BatchPreviewModalProps) {
   const [originalUrl, setOriginalUrl] = useState<string | null>(null);
+  
+  // 使用 ref 存储当前和目标缩放值，实现平滑动画
+  const leftScaleRef = useRef(1);
+  const rightScaleRef = useRef(1);
+  const leftTargetRef = useRef(1);
+  const rightTargetRef = useRef(1);
   const [leftScale, setLeftScale] = useState(1);
   const [rightScale, setRightScale] = useState(1);
+  
   const [leftOrigin, setLeftOrigin] = useState({ x: 50, y: 50 });
   const [rightOrigin, setRightOrigin] = useState({ x: 50, y: 50 });
+  
+  const animationFrameRef = useRef<number>();
+  
+  // 平滑缩放动画
+  useEffect(() => {
+    const animate = () => {
+      // 左侧面板平滑缩放
+      const leftDiff = leftTargetRef.current - leftScaleRef.current;
+      if (Math.abs(leftDiff) > 0.001) {
+        leftScaleRef.current += leftDiff * 0.15; // 缓动系数
+        setLeftScale(leftScaleRef.current);
+      }
+      
+      // 右侧面板平滑缩放
+      const rightDiff = rightTargetRef.current - rightScaleRef.current;
+      if (Math.abs(rightDiff) > 0.001) {
+        rightScaleRef.current += rightDiff * 0.15;
+        setRightScale(rightScaleRef.current);
+      }
+      
+      animationFrameRef.current = requestAnimationFrame(animate);
+    };
+    
+    animationFrameRef.current = requestAnimationFrame(animate);
+    
+    return () => {
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
+    };
+  }, []);
   
   useEffect(() => {
     // Create object URL from file for preview
@@ -3651,13 +3685,16 @@ function BatchPreviewModal({ task, onClose }: BatchPreviewModalProps) {
     const x = ((e.clientX - rect.left) / rect.width) * 100;
     const y = ((e.clientY - rect.top) / rect.height) * 100;
     
-    const delta = e.deltaY > 0 ? 0.9 : 1.1;
+    // 使用更小的缩放步进，让缩放更精细
+    const delta = e.deltaY > 0 ? 0.95 : 1.05;
     
     if (side === 'left') {
-      setLeftScale(prev => Math.max(0.1, Math.min(5, prev * delta)));
+      const newScale = Math.max(0.1, Math.min(5, leftTargetRef.current * delta));
+      leftTargetRef.current = newScale;
       setLeftOrigin({ x, y });
     } else {
-      setRightScale(prev => Math.max(0.1, Math.min(5, prev * delta)));
+      const newScale = Math.max(0.1, Math.min(5, rightTargetRef.current * delta));
+      rightTargetRef.current = newScale;
       setRightOrigin({ x, y });
     }
   };
@@ -3681,8 +3718,8 @@ function BatchPreviewModal({ task, onClose }: BatchPreviewModalProps) {
                     className="preview-img"
                     style={{ 
                       transform: `scale(${leftScale})`, 
-                      transition: 'transform 0.1s',
-                      transformOrigin: `${leftOrigin.x}% ${leftOrigin.y}%`
+                      transformOrigin: `${leftOrigin.x}% ${leftOrigin.y}%`,
+                      willChange: 'transform'
                     }}
                   />
                 ) : originalUrl ? (
@@ -3692,8 +3729,8 @@ function BatchPreviewModal({ task, onClose }: BatchPreviewModalProps) {
                     className="preview-img"
                     style={{ 
                       transform: `scale(${leftScale})`, 
-                      transition: 'transform 0.1s',
-                      transformOrigin: `${leftOrigin.x}% ${leftOrigin.y}%`
+                      transformOrigin: `${leftOrigin.x}% ${leftOrigin.y}%`,
+                      willChange: 'transform'
                     }}
                   />
                 ) : (
@@ -3715,9 +3752,9 @@ function BatchPreviewModal({ task, onClose }: BatchPreviewModalProps) {
                     className="preview-img"
                     style={{ 
                       transform: `scale(${rightScale})`,
-                      transition: 'transform 0.1s',
                       transformOrigin: `${rightOrigin.x}% ${rightOrigin.y}%`,
-                      background: 'repeating-conic-gradient(#e5e7eb 0% 25%, #f3f4f6 0% 50%) 50% / 20px 20px'
+                      background: 'repeating-conic-gradient(#e5e7eb 0% 25%, #f3f4f6 0% 50%) 50% / 20px 20px',
+                      willChange: 'transform'
                     }}
                   />
                 ) : originalUrl ? (
@@ -3727,8 +3764,8 @@ function BatchPreviewModal({ task, onClose }: BatchPreviewModalProps) {
                     className="preview-img"
                     style={{ 
                       transform: `scale(${rightScale})`, 
-                      transition: 'transform 0.1s',
-                      transformOrigin: `${rightOrigin.x}% ${rightOrigin.y}%`
+                      transformOrigin: `${rightOrigin.x}% ${rightOrigin.y}%`,
+                      willChange: 'transform'
                     }}
                   />
                 ) : (

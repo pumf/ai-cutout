@@ -2307,32 +2307,37 @@ body {
 
 .batch-settings {
   display: flex;
-  gap: 16px;
-  padding: 12px;
-  background: var(--bg-color);
+  gap: 12px;
+  padding: 8px 12px;
+  background: linear-gradient(135deg, rgba(255,255,255,0.6) 0%, rgba(248,250,252,0.6) 100%);
   border-radius: var(--radius-md);
+  border: 1px solid rgba(203, 213, 225, 0.3);
+  flex-shrink: 0;
 }
 
 .setting-item {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
 
 .setting-item label {
-  font-size: 13px;
+  font-size: 12px;
   color: var(--text-secondary);
   white-space: nowrap;
+  font-weight: 500;
 }
 
 .setting-item select,
 .setting-item input {
-  padding: 6px 10px;
+  padding: 4px 8px;
   border: 1px solid var(--border-color);
   border-radius: var(--radius-sm);
-  font-size: 13px;
+  font-size: 12px;
   background: var(--surface-color);
   color: var(--text-primary);
+  height: 28px;
+  line-height: 1;
 }
 
 .setting-item select:disabled,
