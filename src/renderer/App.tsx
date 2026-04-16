@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import './App.css';
 import { GifReader, GifWriter } from 'omggif';
-import { listFixedModels, loadFixedModel, loadCustomModel, processImageWithModel, selectModel, openExternalUrl, saveImage, selectImage, copyImageToClipboard, checkForUpdates, getBackendPort, checkPythonDeps, installPythonDeps, selectMultipleImages, selectFolder, saveImageToPath } from '../api';
+import { listFixedModels, loadFixedModel, loadCustomModel, processImageWithModel, selectModel, openExternalUrl, saveImage, selectImage, copyImageToClipboard, checkForUpdates, getBackendPort, selectMultipleImages, selectFolder, saveImageToPath } from '../api';
 import { TitleBar } from './components/TitleBar';
 
 // 声明 vite 注入的全局变量
@@ -2748,37 +2748,7 @@ function App() {
                 </button>
               </div>
 
-              <div className="help-deps">
-                <h3>环境检查</h3>
-                <p>macOS Intel 用户：如果模型列表为空，可能需要安装 Python 依赖</p>
-                <button 
-                  className="btn btn-secondary" 
-                  onClick={async () => {
-                    showToast('正在检查环境...', 'info');
-                    try {
-                      const result = await checkPythonDeps();
-                      console.log('Python deps check result:', result);
-                      
-                      if (!result.hasDependencies && result.usingSystemPython) {
-                        showToast('缺少依赖，准备安装...', 'warning');
-                        const installed = await installPythonDeps();
-                        if (installed) {
-                          showToast('依赖安装成功！请重启应用', 'success');
-                        }
-                      } else if (result.hasDependencies) {
-                        showToast('所有依赖已安装', 'success');
-                      } else {
-                        showToast('环境检查完成', 'info');
-                      }
-                    } catch (error) {
-                      console.error('Failed to check Python deps:', error);
-                      showToast('环境检查失败', 'error');
-                    }
-                  }}
-                >
-                  检查并安装依赖
-                </button>
-              </div>
+
 
               <div className="help-contact">
                 <h3>开源地址</h3>
