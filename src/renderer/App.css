@@ -318,6 +318,25 @@ body {
   border: 1px solid rgba(203, 213, 225, 0.5);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
   backdrop-filter: blur(8px);
+  position: relative;
+  z-index: 10;
+}
+
+.toolbar-group.batch-group {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.1) 0%, rgba(251, 191, 36, 0.1) 100%);
+  border-color: rgba(245, 158, 11, 0.3);
+}
+
+.toolbar-group.batch-group .batch-btn {
+  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+  color: white;
+  border: none;
+  box-shadow: 0 2px 8px rgba(245, 158, 11, 0.3);
+}
+
+.toolbar-group.batch-group .batch-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
+  box-shadow: 0 4px 12px rgba(245, 158, 11, 0.4);
 }
 
 .toolbar-tools {
@@ -2041,31 +2060,55 @@ body {
 
 .batch-stats {
   display: flex;
-  gap: 12px;
-  padding: 10px 12px;
-  background: var(--bg-color);
+  gap: 4px;
+  padding: 6px 10px;
+  background: linear-gradient(135deg, rgba(255,255,255,0.8) 0%, rgba(248,250,252,0.8) 100%);
   border-radius: var(--radius-md);
   flex-shrink: 0;
+  border: 1px solid rgba(203, 213, 225, 0.4);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
 }
 
 .stat-item {
-  flex: 1;
-  text-align: center;
-  padding: 2px 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.stat-item::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-secondary);
+}
+
+.stat-item.success::before {
+  background: var(--success-color);
+}
+
+.stat-item.error::before {
+  background: #ef4444;
+}
+
+.stat-item.pending::before {
+  background: #f59e0b;
 }
 
 .stat-value {
-  display: block;
-  font-size: 20px;
+  font-size: 15px;
   font-weight: 600;
   color: var(--text-primary);
-  line-height: 1.2;
+  line-height: 1;
 }
 
 .stat-label {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-secondary);
-  line-height: 1.2;
+  line-height: 1;
 }
 
 .stat-item.success .stat-value {

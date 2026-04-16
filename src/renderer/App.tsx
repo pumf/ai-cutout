@@ -2987,7 +2987,7 @@ function App() {
 
       <main className="main">
         <div className="toolbar">
-          {/* 主要操作组 */}
+          {/* 文件操作组 */}
           <div className="toolbar-group">
             <button
               className="btn btn-primary"
@@ -2997,14 +2997,22 @@ function App() {
               <span className="btn-icon">📁</span>
               <span className="btn-text">选择</span>
             </button>
+          </div>
+
+          {/* 批量处理组 */}
+          <div className="toolbar-group batch-group">
             <button
-              className="btn btn-secondary"
+              className="btn btn-secondary batch-btn"
               onClick={() => setShowBatchDialog(true)}
               title="批量处理多张图片"
             >
               <span className="btn-icon">📂</span>
-              <span className="btn-text">批量</span>
+              <span className="btn-text">批量抠图</span>
             </button>
+          </div>
+
+          {/* 主要操作组 */}
+          <div className="toolbar-group main-actions">
             {isGifProcessing ? (
               <button
                 className="btn btn-error"
@@ -3625,6 +3633,8 @@ function BatchPreviewModal({ task, onClose }: BatchPreviewModalProps) {
   const [originalUrl, setOriginalUrl] = useState<string | null>(null);
   const [leftScale, setLeftScale] = useState(1);
   const [rightScale, setRightScale] = useState(1);
+  const [leftOrigin, setLeftOrigin] = useState({ x: 50, y: 50 });
+  const [rightOrigin, setRightOrigin] = useState({ x: 50, y: 50 });
   
   useEffect(() => {
     // Create object URL from file for preview
@@ -3637,11 +3647,18 @@ function BatchPreviewModal({ task, onClose }: BatchPreviewModalProps) {
   
   const handleWheel = (e: React.WheelEvent, side: 'left' | 'right') => {
     e.preventDefault();
+    const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width) * 100;
+    const y = ((e.clientY - rect.top) / rect.height) * 100;
+    
     const delta = e.deltaY > 0 ? 0.9 : 1.1;
+    
     if (side === 'left') {
       setLeftScale(prev => Math.max(0.1, Math.min(5, prev * delta)));
+      setLeftOrigin({ x, y });
     } else {
       setRightScale(prev => Math.max(0.1, Math.min(5, prev * delta)));
+      setRightOrigin({ x, y });
     }
   };
   
@@ -3662,14 +3679,22 @@ function BatchPreviewModal({ task, onClose }: BatchPreviewModalProps) {
                     src={task.originalImage} 
                     alt="Original"
                     className="preview-img"
-                    style={{ transform: `scale(${leftScale})`, transition: 'transform 0.1s' }}
+                    style={{ 
+                      transform: `scale(${leftScale})`, 
+                      transition: 'transform 0.1s',
+                      transformOrigin: `${leftOrigin.x}% ${leftOrigin.y}%`
+                    }}
                   />
                 ) : originalUrl ? (
                   <img 
                     src={originalUrl} 
                     alt="Original"
                     className="preview-img"
-                    style={{ transform: `scale(${leftScale})`, transition: 'transform 0.1s' }}
+                    style={{ 
+                      transform: `scale(${leftScale})`, 
+                      transition: 'transform 0.1s',
+                      transformOrigin: `${leftOrigin.x}% ${leftOrigin.y}%`
+                    }}
                   />
                 ) : (
                   <div className="preview-placeholder">
@@ -3691,6 +3716,7 @@ function BatchPreviewModal({ task, onClose }: BatchPreviewModalProps) {
                     style={{ 
                       transform: `scale(${rightScale})`,
                       transition: 'transform 0.1s',
+                      transformOrigin: `${rightOrigin.x}% ${rightOrigin.y}%`,
                       background: 'repeating-conic-gradient(#e5e7eb 0% 25%, #f3f4f6 0% 50%) 50% / 20px 20px'
                     }}
                   />
@@ -3699,7 +3725,11 @@ function BatchPreviewModal({ task, onClose }: BatchPreviewModalProps) {
                     src={originalUrl} 
                     alt="Original"
                     className="preview-img"
-                    style={{ transform: `scale(${rightScale})`, transition: 'transform 0.1s' }}
+                    style={{ 
+                      transform: `scale(${rightScale})`, 
+                      transition: 'transform 0.1s',
+                      transformOrigin: `${rightOrigin.x}% ${rightOrigin.y}%`
+                    }}
                   />
                 ) : (
                   <div className="preview-placeholder">
