@@ -9,7 +9,7 @@ on:
 
 jobs:
   build-intel-mac:
-    runs-on: macos-13  # macos-13 is Intel (x86_64), macos-14 is ARM
+    runs-on: macos-13-large  # Intel Mac runner
     
     steps:
     - name: Checkout code
