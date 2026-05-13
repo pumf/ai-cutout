@@ -60,8 +60,8 @@ function App() {
   const [translateX, setTranslateX] = useState(0);
   const [translateY, setTranslateY] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
-  const [startPos, setStartPos] = useState({ x: 0, y: 0 });
-  const [startTranslate, setStartTranslate] = useState({ x: 0, y: 0 });
+  const startPosRef = useRef({ x: 0, y: 0 });
+  const startTranslateRef = useRef({ x: 0, y: 0 });
 
   // Refs for direct DOM manipulation (avoid re-renders during drag/zoom)
   const scaleRef = useRef(1);
@@ -1556,22 +1556,32 @@ function App() {
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     if (!originalImage && !processedImage) return;
     setIsDragging(true);
-    setStartPos({ x: e.clientX, y: e.clientY });
-    setStartTranslate({ x: translateXRef.current, y: translateYRef.current });
+    startPosRef.current = { x: e.clientX, y: e.clientY };
+    startTranslateRef.current = { x: translateXRef.current, y: translateYRef.current };
   }, [originalImage, processedImage]);
-
-  const handleMouseMove = useCallback((e: React.MouseEvent) => {
-    if (!isDragging) return;
-    const newTx = startTranslate.x + (e.clientX - startPos.x);
-    const newTy = startTranslate.y + (e.clientY - startPos.y);
-    updateTransform(scaleRef.current, newTx, newTy);
-    setTranslateX(newTx);
-    setTranslateY(newTy);
-  }, [isDragging, startPos, startTranslate]);
 
   const handleMouseUp = useCallback(() => {
     setIsDragging(false);
   }, []);
+
+  // 主预览拖动:用 window 级监听,即使鼠标拖出 panel 边界也能继续到松手再结束
+  useEffect(() => {
+    if (!isDragging) return;
+    const onMove = (e: MouseEvent) => {
+      const newTx = startTranslateRef.current.x + (e.clientX - startPosRef.current.x);
+      const newTy = startTranslateRef.current.y + (e.clientY - startPosRef.current.y);
+      updateTransform(scaleRef.current, newTx, newTy);
+      setTranslateX(newTx);
+      setTranslateY(newTy);
+    };
+    const onUp = () => setIsDragging(false);
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+  }, [isDragging]);
 
   const handleImageLoad = () => {
     // Image loaded callback - ensure transform is applied after image loads
@@ -3427,7 +3437,7 @@ function App() {
               onClick={() => !originalImage && fileInputRef.current?.click()}
               onWheel={(e) => handleZoom(e as unknown as WheelEvent, originalPanelRef)}
               onMouseDown={editMode === 'none' ? handleMouseDown : handleOriginalMouseDown}
-              onMouseMove={editMode === 'none' ? handleMouseMove : (e) => {
+              onMouseMove={editMode !== 'none' ? (e) => {
                 handleOriginalMouseMove(e);
                 // Update both cursors simultaneously
                 const originalCursor = originalCursorRef.current;
@@ -3447,15 +3457,14 @@ function App() {
                     resultCursor.style.top = `${relativeY * resultRect.height}px`;
                   }
                 }
-              }}
-              onMouseUp={editMode === 'none' ? handleMouseUp : handleOriginalMouseUp}
+              } : undefined}
+              onMouseUp={editMode !== 'none' ? handleOriginalMouseUp : undefined}
               onMouseEnter={() => setIsMouseInOriginalPanel(true)}
               onMouseLeave={() => {
-                if (editMode === 'none') {
-                  handleMouseUp();
-                } else {
+                if (editMode !== 'none') {
                   handleOriginalMouseUp();
                 }
+                // editMode === 'none' 时,拖动由 window 级监听管理,无需在 leave 结束
                 setIsMouseInOriginalPanel(false);
               }}
             >
@@ -3556,7 +3565,7 @@ function App() {
               style={{ cursor: isOriginalGif || editMode === 'none' ? 'grab' : 'default' }}
               onWheel={(e) => handleZoom(e as unknown as WheelEvent, resultPanelRef)}
               onMouseDown={isOriginalGif ? handleMouseDown : (editMode === 'none' ? handleMouseDown : handleDrawStart)}
-              onMouseMove={isOriginalGif ? handleMouseMove : (editMode === 'none' ? handleMouseMove : (e) => {
+              onMouseMove={(!isOriginalGif && editMode !== 'none') ? (e) => {
                 handleDrawMove(e);
                 // Update both cursors simultaneously
                 const resultCursor = resultCursorRef.current;
@@ -3576,15 +3585,14 @@ function App() {
                     originalCursor.style.top = `${relativeY * originalRect.height}px`;
                   }
                 }
-              })}
-              onMouseUp={isOriginalGif ? handleMouseUp : (editMode === 'none' ? handleMouseUp : handleDrawEnd)}
+              } : undefined}
+              onMouseUp={(!isOriginalGif && editMode !== 'none') ? handleDrawEnd : undefined}
               onMouseEnter={() => setIsMouseInResultPanel(true)}
               onMouseLeave={() => {
-                if (editMode === 'none' || isOriginalGif) {
-                  handleMouseUp();
-                } else {
+                if (!isOriginalGif && editMode !== 'none') {
                   handleDrawEnd();
                 }
+                // 拖动模式由 window 级监听管理,无需在 leave 结束
                 setIsMouseInResultPanel(false);
               }}
             >
@@ -4003,22 +4011,24 @@ interface GifFramePreviewModalProps {
 function GifFramePreviewModal({ isOpen, onClose, frameIndex, originalFrames, processedFrames }: GifFramePreviewModalProps) {
   const [currentIndex, setCurrentIndex] = useState(frameIndex || 0);
   const [scale, setScale] = useState(1);
-  const [origin, setOrigin] = useState({ x: 50, y: 50 });
-  const [isDragging, setIsDragging] = useState(false);
-  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [translate, setTranslate] = useState({ x: 0, y: 0 });
-  const containerRef = useRef<HTMLDivElement>(null);
-  
+  const [isDragging, setIsDragging] = useState(false);
+  const scaleRef = useRef(1);
+  const translateRef = useRef({ x: 0, y: 0 });
+  const startPosRef = useRef({ x: 0, y: 0 });
+  const startTranslateRef = useRef({ x: 0, y: 0 });
+
   const totalFrames = Math.max(originalFrames.length, processedFrames.length);
   const originalUrl = originalFrames[currentIndex];
   const processedUrl = processedFrames[currentIndex];
-  
+
   // Reset state when opening
   useEffect(() => {
     if (isOpen && frameIndex !== null) {
       setCurrentIndex(frameIndex);
+      scaleRef.current = 1;
+      translateRef.current = { x: 0, y: 0 };
       setScale(1);
-      setOrigin({ x: 50, y: 50 });
       setTranslate({ x: 0, y: 0 });
     }
   }, [isOpen, frameIndex]);
@@ -4054,54 +4064,65 @@ function GifFramePreviewModal({ isOpen, onClose, frameIndex, originalFrames, pro
   };
   
   const resetView = () => {
+    scaleRef.current = 1;
+    translateRef.current = { x: 0, y: 0 };
     setScale(1);
-    setOrigin({ x: 50, y: 50 });
     setTranslate({ x: 0, y: 0 });
   };
-  
+
   const handleWheel = (e: React.WheelEvent) => {
     e.preventDefault();
-    
-    if (!containerRef.current) return;
-    
-    const rect = containerRef.current.getBoundingClientRect();
-    const mouseX = ((e.clientX - rect.left) / rect.width) * 100;
-    const mouseY = ((e.clientY - rect.top) / rect.height) * 100;
-    
+    const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
     const delta = e.deltaY > 0 ? 0.9 : 1.1;
-    const newScale = Math.max(0.1, Math.min(5, scale * delta));
-    
+    const newScale = Math.max(0.1, Math.min(8, scaleRef.current * delta));
+    const panelCx = rect.width / 2;
+    const panelCy = rect.height / 2;
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+    const worldX = (mouseX - panelCx - translateRef.current.x) / scaleRef.current;
+    const worldY = (mouseY - panelCy - translateRef.current.y) / scaleRef.current;
+    const newTx = mouseX - panelCx - worldX * newScale;
+    const newTy = mouseY - panelCy - worldY * newScale;
+    scaleRef.current = newScale;
+    translateRef.current = { x: newTx, y: newTy };
     setScale(newScale);
-    setOrigin({ x: mouseX, y: mouseY });
+    setTranslate({ x: newTx, y: newTy });
   };
-  
+
   const handleMouseDown = (e: React.MouseEvent) => {
-    if (scale > 1) {
-      setIsDragging(true);
-      setDragStart({ x: e.clientX - translate.x, y: e.clientY - translate.y });
-    }
+    if (e.button !== 0) return;
+    setIsDragging(true);
+    startPosRef.current = { x: e.clientX, y: e.clientY };
+    startTranslateRef.current = { x: translateRef.current.x, y: translateRef.current.y };
+    e.preventDefault();
   };
-  
-  const handleMouseMove = (e: React.MouseEvent) => {
-    if (isDragging) {
-      setTranslate({
-        x: e.clientX - dragStart.x,
-        y: e.clientY - dragStart.y
-      });
-    }
-  };
-  
-  const handleMouseUp = () => {
-    setIsDragging(false);
-  };
-  
+
+  // 拖动:用 window 级监听,鼠标拖出 wrapper 边界也能继续到松手
+  useEffect(() => {
+    if (!isDragging) return;
+    const onMove = (e: MouseEvent) => {
+      const newTx = startTranslateRef.current.x + (e.clientX - startPosRef.current.x);
+      const newTy = startTranslateRef.current.y + (e.clientY - startPosRef.current.y);
+      translateRef.current = { x: newTx, y: newTy };
+      setTranslate({ x: newTx, y: newTy });
+    };
+    const onUp = () => setIsDragging(false);
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+  }, [isDragging]);
+
   if (!isOpen) return null;
-  
+
   const imageStyle: React.CSSProperties = {
-    transform: `scale(${scale}) translate(${translate.x / scale}px, ${translate.y / scale}px)`,
-    transformOrigin: `${origin.x}% ${origin.y}%`,
-    cursor: scale > 1 ? (isDragging ? 'grabbing' : 'grab') : 'default',
-    willChange: 'transform'
+    transform: `translate(${translate.x}px, ${translate.y}px) scale(${scale})`,
+    transformOrigin: '50% 50%',
+    cursor: isDragging ? 'grabbing' : 'grab',
+    willChange: 'transform',
+    userSelect: 'none',
   };
   
   return (
@@ -4138,20 +4159,17 @@ function GifFramePreviewModal({ isOpen, onClose, frameIndex, originalFrames, pro
           <button className="modal-close" onClick={onClose}>×</button>
         </div>
         <div className="modal-content gif-frame-content">
-          <div 
-            className="gif-frame-comparison"
-            ref={containerRef}
-            onWheel={handleWheel}
-            onMouseDown={handleMouseDown}
-            onMouseMove={handleMouseMove}
-            onMouseUp={handleMouseUp}
-            onMouseLeave={handleMouseUp}
-          >
+          <div className="gif-frame-comparison">
             {originalUrl && (
               <div className="gif-frame-panel">
-                <div className="gif-frame-label">原图 (滚轮缩放)</div>
-                <div className="gif-frame-image-wrapper">
-                  <img 
+                <div className="gif-frame-label">原图 (滚轮缩放 / 拖动平移)</div>
+                <div
+                  className="gif-frame-image-wrapper"
+                  onWheel={handleWheel}
+                  onMouseDown={handleMouseDown}
+                  style={{ overflow: 'hidden', cursor: isDragging ? 'grabbing' : 'grab' }}
+                >
+                  <img
                     src={originalUrl}
                     alt={`Original Frame ${currentIndex + 1}`}
                     style={imageStyle}
@@ -4162,9 +4180,14 @@ function GifFramePreviewModal({ isOpen, onClose, frameIndex, originalFrames, pro
             )}
             {processedUrl && (
               <div className="gif-frame-panel">
-                <div className="gif-frame-label">处理后 (滚轮缩放)</div>
-                <div className="gif-frame-image-wrapper">
-                  <img 
+                <div className="gif-frame-label">处理后 (滚轮缩放 / 拖动平移)</div>
+                <div
+                  className="gif-frame-image-wrapper"
+                  onWheel={handleWheel}
+                  onMouseDown={handleMouseDown}
+                  style={{ overflow: 'hidden', cursor: isDragging ? 'grabbing' : 'grab' }}
+                >
+                  <img
                     src={processedUrl}
                     alt={`Processed Frame ${currentIndex + 1}`}
                     style={imageStyle}
