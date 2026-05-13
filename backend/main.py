@@ -290,9 +290,7 @@ def process_birefnet(image: Image.Image, transform_fn, device) -> Image.Image:
     output = Image.new('RGBA', original_size, (0, 0, 0, 0))
     original_rgba = image.convert('RGBA')
     output.paste(original_rgba, (0, 0), mask=pred_pil)
-    
-    return output
-    
+
     return output
 
 
@@ -525,40 +523,6 @@ async def load_custom_model_endpoint(request: Request):
         return {"success": True, "model": info}
     except Exception as e:
         logger.error(f"Failed to load custom model: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/models/download/{model_id}")
-async def download_model(model_id: str):
-    """Download a model from URL"""
-    fixed = next((m for m in FIXED_MODELS if m['id'] == model_id), None)
-    if not fixed:
-        raise HTTPException(status_code=404, detail=f"Unknown model: {model_id}")
-    
-    download_url = fixed.get('download_url')
-    if not download_url:
-        raise HTTPException(status_code=400, detail="No download URL available")
-    
-    model_path = MODEL_DIR / fixed['expected_path']
-    
-    # Create parent directory if needed
-    model_path.parent.mkdir(parents=True, exist_ok=True)
-    
-    if model_path.exists():
-        return {"success": True, "message": "Model already exists", "path": str(model_path)}
-    
-    logger.info(f"Downloading model from {download_url}...")
-    
-    try:
-        import urllib.request
-        urllib.request.urlretrieve(download_url, model_path)
-        logger.info(f"Model downloaded to {model_path}")
-        
-        # Load the model after download
-        info = load_model(str(model_path))
-        return {"success": True, "model": info}
-    except Exception as e:
-        logger.error(f"Failed to download model: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

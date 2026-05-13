@@ -352,11 +352,6 @@ async function startPythonBackend(): Promise<void> {
           reject(new Error('Permission denied: Please run the application as Administrator or check antivirus settings.'));
         }
       }
-
-      // Check for module import errors
-      if (output.includes('ModuleNotFoundError') || output.includes('ImportError')) {
-        reject(new Error('Missing Python dependencies: Please ensure all required packages are installed. Run: pip install -r requirements.txt'));
-      }
     });
 
     pythonProcess.on('error', (error: Error) => {
