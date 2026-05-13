@@ -154,6 +154,8 @@ function App() {
   const maskCanvasRef = useRef<HTMLCanvasElement>(null);
   const originalCanvasRef = useRef<HTMLCanvasElement>(null);
   const lastPosRef = useRef<{ x: number; y: number } | null>(null);
+  const origFramesListRef = useRef<HTMLDivElement>(null);
+  const procFramesListRef = useRef<HTMLDivElement>(null);
 
   // Handle zoom with mouse position as anchor point - keep the point visually stationary
   const handleZoom = useCallback((e: WheelEvent, panelRef: React.RefObject<HTMLDivElement>) => {
@@ -266,6 +268,27 @@ function App() {
       panel2?.removeEventListener('wheel', handleResultWheel);
     };
   }, [handleZoom]);
+
+  // GIF 帧列表内部滚动:父面板用 native 非 passive wheel 监听做缩放并 preventDefault,
+  // 会取消列表的默认滚动。这里在列表上挂 native 监听,stopPropagation 后手动驱动 scrollTop。
+  useEffect(() => {
+    const handleListWheel = (e: WheelEvent) => {
+      const list = e.currentTarget as HTMLDivElement;
+      const container = list.querySelector('.gif-frames-container') as HTMLDivElement | null;
+      if (!container) return;
+      e.preventDefault();
+      e.stopPropagation();
+      container.scrollTop += e.deltaY;
+    };
+    const origList = origFramesListRef.current;
+    const procList = procFramesListRef.current;
+    origList?.addEventListener('wheel', handleListWheel, { passive: false });
+    procList?.addEventListener('wheel', handleListWheel, { passive: false });
+    return () => {
+      origList?.removeEventListener('wheel', handleListWheel);
+      procList?.removeEventListener('wheel', handleListWheel);
+    };
+  }, [isOriginalGif, gifOriginalFrames.length, gifProcessedFrames.length]);
 
   const loadAvailableModels = async () => {
     try {
@@ -3467,9 +3490,9 @@ function App() {
               )}
               {/* GIF Original Frames List */}
               {isOriginalGif && gifOriginalFrames.length > 0 && (
-                <div 
+                <div
+                  ref={origFramesListRef}
                   className="gif-frames-list original-frames"
-                  onWheel={(e) => e.stopPropagation()}
                 >
                   <div className="gif-frames-title">原图帧 ({gifOriginalFrames.length})</div>
                   <div className="gif-frames-container">
@@ -3622,9 +3645,9 @@ function App() {
               )}
               {/* GIF Processed Frames List */}
               {isOriginalGif && gifProcessedFrames.length > 0 && (
-                <div 
+                <div
+                  ref={procFramesListRef}
                   className="gif-frames-list processed-frames"
-                  onWheel={(e) => e.stopPropagation()}
                 >
                   <div className="gif-frames-title">处理后帧 ({gifProcessedFrames.length})</div>
                   <div className="gif-frames-container">
@@ -3777,76 +3800,98 @@ interface BatchPreviewModalProps {
 
 function BatchPreviewModal({ task, onClose }: BatchPreviewModalProps) {
   const [originalUrl, setOriginalUrl] = useState<string | null>(null);
-  
-  // 使用 ref 存储当前和目标缩放值，实现平滑动画
-  const leftScaleRef = useRef(1);
-  const rightScaleRef = useRef(1);
-  const leftTargetRef = useRef(1);
-  const rightTargetRef = useRef(1);
-  const [leftScale, setLeftScale] = useState(1);
-  const [rightScale, setRightScale] = useState(1);
-  
-  const [leftOrigin, setLeftOrigin] = useState({ x: 50, y: 50 });
-  const [rightOrigin, setRightOrigin] = useState({ x: 50, y: 50 });
-  
-  const animationFrameRef = useRef<number>();
-  
-  // 平滑缩放动画
+
+  // 左右共享同一套 transform:scale + translate(像素)。
+  // 缩放以鼠标点为锚点(参考主预览 handleZoom 的公式),让锚点视觉上保持不动,避免"乱动"。
+  const [scale, setScale] = useState(1);
+  const [translate, setTranslate] = useState({ x: 0, y: 0 });
+  const scaleRef = useRef(1);
+  const translateRef = useRef({ x: 0, y: 0 });
+
+  const draggingRef = useRef(false);
+  const dragStartRef = useRef({ mouseX: 0, mouseY: 0, tx: 0, ty: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+
   useEffect(() => {
-    const animate = () => {
-      // 左侧面板平滑缩放
-      const leftDiff = leftTargetRef.current - leftScaleRef.current;
-      if (Math.abs(leftDiff) > 0.001) {
-        leftScaleRef.current += leftDiff * 0.15; // 缓动系数
-        setLeftScale(leftScaleRef.current);
-      }
-      
-      // 右侧面板平滑缩放
-      const rightDiff = rightTargetRef.current - rightScaleRef.current;
-      if (Math.abs(rightDiff) > 0.001) {
-        rightScaleRef.current += rightDiff * 0.15;
-        setRightScale(rightScaleRef.current);
-      }
-      
-      animationFrameRef.current = requestAnimationFrame(animate);
-    };
-    
-    animationFrameRef.current = requestAnimationFrame(animate);
-    
-    return () => {
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current);
-      }
-    };
-  }, []);
-  
-  useEffect(() => {
-    // Create object URL from file for preview
     if (task.file) {
       const url = URL.createObjectURL(task.file);
       setOriginalUrl(url);
       return () => URL.revokeObjectURL(url);
     }
   }, [task.file]);
-  
-  const handleWheel = (e: React.WheelEvent, side: 'left' | 'right') => {
+
+  const handleWheel = (e: React.WheelEvent) => {
     e.preventDefault();
     const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
-    const x = ((e.clientX - rect.left) / rect.width) * 100;
-    const y = ((e.clientY - rect.top) / rect.height) * 100;
-    
-    // 使用更小的缩放步进，让缩放更精细
-    const delta = e.deltaY > 0 ? 0.95 : 1.05;
-    
-    if (side === 'left') {
-      const newScale = Math.max(0.1, Math.min(5, leftTargetRef.current * delta));
-      leftTargetRef.current = newScale;
-      setLeftOrigin({ x, y });
-    } else {
-      const newScale = Math.max(0.1, Math.min(5, rightTargetRef.current * delta));
-      rightTargetRef.current = newScale;
-      setRightOrigin({ x, y });
-    }
+    const delta = e.deltaY > 0 ? 0.9 : 1.1;
+    const newScale = Math.max(0.1, Math.min(8, scaleRef.current * delta));
+
+    // 以鼠标位置为锚点重算 translate,保持鼠标下的图像点视觉不动
+    const panelCx = rect.width / 2;
+    const panelCy = rect.height / 2;
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+    const worldX = (mouseX - panelCx - translateRef.current.x) / scaleRef.current;
+    const worldY = (mouseY - panelCy - translateRef.current.y) / scaleRef.current;
+    const newTx = mouseX - panelCx - worldX * newScale;
+    const newTy = mouseY - panelCy - worldY * newScale;
+
+    scaleRef.current = newScale;
+    translateRef.current = { x: newTx, y: newTy };
+    setScale(newScale);
+    setTranslate({ x: newTx, y: newTy });
+  };
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (e.button !== 0) return;
+    draggingRef.current = true;
+    setIsDragging(true);
+    dragStartRef.current = {
+      mouseX: e.clientX,
+      mouseY: e.clientY,
+      tx: translateRef.current.x,
+      ty: translateRef.current.y,
+    };
+    e.preventDefault();
+  };
+
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (!draggingRef.current) return;
+      const dx = e.clientX - dragStartRef.current.mouseX;
+      const dy = e.clientY - dragStartRef.current.mouseY;
+      const newTx = dragStartRef.current.tx + dx;
+      const newTy = dragStartRef.current.ty + dy;
+      translateRef.current = { x: newTx, y: newTy };
+      setTranslate({ x: newTx, y: newTy });
+    };
+    const onUp = () => {
+      if (draggingRef.current) {
+        draggingRef.current = false;
+        setIsDragging(false);
+      }
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+  }, []);
+
+  const handleReset = () => {
+    scaleRef.current = 1;
+    translateRef.current = { x: 0, y: 0 };
+    setScale(1);
+    setTranslate({ x: 0, y: 0 });
+  };
+
+  const imgStyle: React.CSSProperties = {
+    transform: `translate(${translate.x}px, ${translate.y}px) scale(${scale})`,
+    transformOrigin: '50% 50%',
+    willChange: 'transform',
+    cursor: isDragging ? 'grabbing' : 'grab',
+    userSelect: 'none',
   };
   
   return (
@@ -3854,34 +3899,41 @@ function BatchPreviewModal({ task, onClose }: BatchPreviewModalProps) {
       <div className="modal modal-preview resizable-modal">
         <div className="modal-header">
           <h3>图片预览 - {task.fileName}</h3>
-          <button className="modal-close" onClick={onClose}>×</button>
+          <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+            <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>缩放: {Math.round(scale * 100)}%</span>
+            <button
+              onClick={handleReset}
+              style={{ padding: '4px 10px', fontSize: 12, border: '1px solid var(--border-color)', background: 'transparent', borderRadius: 6, cursor: 'pointer' }}
+              title="重置缩放与位置"
+            >重置</button>
+            <button className="modal-close" onClick={onClose}>×</button>
+          </div>
         </div>
         <div className="modal-content preview-content">
           <div className="preview-comparison">
             <div className="preview-panel">
-              <div className="preview-label">原始图片 (滚轮缩放)</div>
-              <div className="preview-image-wrapper" onWheel={(e) => handleWheel(e, 'left')}>
+              <div className="preview-label">原始图片 (滚轮缩放 / 拖动平移)</div>
+              <div
+                className="preview-image-wrapper"
+                onWheel={handleWheel}
+                onMouseDown={handleMouseDown}
+                style={{ overflow: 'hidden', cursor: isDragging ? 'grabbing' : 'grab' }}
+              >
                 {task.originalImage ? (
-                  <img 
-                    src={task.originalImage} 
+                  <img
+                    src={task.originalImage}
                     alt="Original"
                     className="preview-img"
-                    style={{ 
-                      transform: `scale(${leftScale})`, 
-                      transformOrigin: `${leftOrigin.x}% ${leftOrigin.y}%`,
-                      willChange: 'transform'
-                    }}
+                    style={imgStyle}
+                    draggable={false}
                   />
                 ) : originalUrl ? (
-                  <img 
-                    src={originalUrl} 
+                  <img
+                    src={originalUrl}
                     alt="Original"
                     className="preview-img"
-                    style={{ 
-                      transform: `scale(${leftScale})`, 
-                      transformOrigin: `${leftOrigin.x}% ${leftOrigin.y}%`,
-                      willChange: 'transform'
-                    }}
+                    style={imgStyle}
+                    draggable={false}
                   />
                 ) : (
                   <div className="preview-placeholder">
@@ -3892,31 +3944,32 @@ function BatchPreviewModal({ task, onClose }: BatchPreviewModalProps) {
             </div>
             <div className="preview-panel">
               <div className="preview-label">
-                {task.status === 'success' ? '处理后 (滚轮缩放)' : '原图 (滚轮缩放)'}
+                {task.status === 'success' ? '处理后 (滚轮缩放 / 拖动平移)' : '原图 (滚轮缩放 / 拖动平移)'}
               </div>
-              <div className="preview-image-wrapper" onWheel={(e) => handleWheel(e, 'right')}>
+              <div
+                className="preview-image-wrapper"
+                onWheel={handleWheel}
+                onMouseDown={handleMouseDown}
+                style={{ overflow: 'hidden', cursor: isDragging ? 'grabbing' : 'grab' }}
+              >
                 {task.processedImage ? (
-                  <img 
-                    src={task.processedImage} 
+                  <img
+                    src={task.processedImage}
                     alt="Processed"
                     className="preview-img"
-                    style={{ 
-                      transform: `scale(${rightScale})`,
-                      transformOrigin: `${rightOrigin.x}% ${rightOrigin.y}%`,
+                    style={{
+                      ...imgStyle,
                       background: 'repeating-conic-gradient(#e5e7eb 0% 25%, #f3f4f6 0% 50%) 50% / 20px 20px',
-                      willChange: 'transform'
                     }}
+                    draggable={false}
                   />
                 ) : originalUrl ? (
-                  <img 
-                    src={originalUrl} 
+                  <img
+                    src={originalUrl}
                     alt="Original"
                     className="preview-img"
-                    style={{ 
-                      transform: `scale(${rightScale})`, 
-                      transformOrigin: `${rightOrigin.x}% ${rightOrigin.y}%`,
-                      willChange: 'transform'
-                    }}
+                    style={imgStyle}
+                    draggable={false}
                   />
                 ) : (
                   <div className="preview-placeholder">
