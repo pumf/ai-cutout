@@ -14,6 +14,8 @@ release/
 *.dmg
 *.spec
 venv-minimal/
+venv-minimal-backup/
+model_files/2.0/
 logs/
 *.log
 test-*.js
