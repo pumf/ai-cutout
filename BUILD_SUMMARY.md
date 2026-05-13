@@ -8,6 +8,33 @@
 - **状态**: ✅ 本地构建完成
 - **位置**: `/Users/mac/Project/open_code/ai-cutout/release-builds/`
 
+## 本地构建指南
+
+### ⚠️ 重要：不同架构需要不同的 venv
+
+由于 venv-minimal 默认使用 ARM64 架构的 Python，构建 Intel Mac (x64) 版本前需要切换 venv：
+
+```bash
+# 1. 构建 Apple Silicon 版本 (ARM64)
+npm run package:mac:arm64
+
+# 2. 构建 Intel Mac 版本 (x64) - 会自动使用 venv-x64
+npm run package:mac:x64
+
+# 3. 构建 Universal 版本
+npm run package:mac:universal
+```
+
+### 首次构建 Intel Mac 版本前
+
+确保 venv-x64 已创建（包含 x86_64 架构的 Python）：
+
+```bash
+./scripts/prepare-x64-venv.sh
+```
+
+这会在 `venv-x64/` 目录创建一个 Universal Binary 的 Python 环境，支持 x86_64 和 arm64 架构。
+
 ## GitHub Actions 自动构建
 
 ### 触发方式

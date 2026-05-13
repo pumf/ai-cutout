@@ -14,7 +14,10 @@
     "copy-images": "cp resource/qrcode.jpg resource/grcode.jpg dist/renderer/",
     "build:electron": "tsc -p tsconfig.main.json",
     "package": "npm run build && electron-builder --mac --win --linux",
-    "package:mac": "npm run build && electron-builder --mac",
+    "package:mac": "npm run package:mac:arm64",
+    "package:mac:arm64": "./scripts/prepare-venv-for-arch.sh arm64 && npm run build && electron-builder --mac --arm64",
+    "package:mac:x64": "./scripts/prepare-venv-for-arch.sh x64 && npm run build && electron-builder --mac --x64",
+    "package:mac:universal": "./scripts/prepare-venv-for-arch.sh universal && npm run build && electron-builder --mac --universal",
     "package:win": "npm run build && electron-builder --win",
     "start": "electron ."
   },

@@ -13,8 +13,41 @@ rm -rf venv-minimal
 mkdir -p venv-minimal/bin
 mkdir -p venv-minimal/lib/python3.13/site-packages
 
-# 复制 Python 解释器
-cp venv/bin/python* venv-minimal/bin/ 2>/dev/null || true
+# 复制 Python 解释器 - 使用真实文件而非符号链接
+# 首先找到 Python 解释器的真实路径
+PYTHON_REAL=$(readlink -f venv/bin/python3 2>/dev/null || readlink venv/bin/python3)
+if [ -z "$PYTHON_REAL" ] || [ ! -f "$PYTHON_REAL" ]; then
+    # 如果 readlink 失败，尝试使用 python3 命令找到实际路径
+    PYTHON_REAL=$(venv/bin/python3 -c "import sys; print(sys.executable)")
+fi
+echo "Python 真实路径: $PYTHON_REAL"
+
+# 复制 Python 可执行文件
+cp "$PYTHON_REAL" venv-minimal/bin/python3
+chmod +x venv-minimal/bin/python3
+ln -sf python3 venv-minimal/bin/python
+
+# 复制 Python3 库文件 (macOS 特有)
+# Python3 库通常在可执行文件的 ../Python3 或 Frameworks 中
+PYTHON_DIR=$(dirname "$PYTHON_REAL")
+if [ -f "$PYTHON_DIR/../Python3" ]; then
+    cp "$PYTHON_DIR/../Python3" venv-minimal/
+    echo "✓ 复制 Python3 库文件"
+elif [ -f "$PYTHON_DIR/Python3" ]; then
+    cp "$PYTHON_DIR/Python3" venv-minimal/
+    echo "✓ 复制 Python3 库文件"
+fi
+
+# 如果是 Homebrew Python，需要复制 Framework
+if [[ "$PYTHON_REAL" == *"/opt/homebrew/"* ]] || [[ "$PYTHON_REAL" == *"/usr/local/"* ]]; then
+    # 找到 Python.framework
+    FRAMEWORK_PATH=$(find $(dirname "$PYTHON_DIR") -name "Python" -type f 2>/dev/null | head -1)
+    if [ -n "$FRAMEWORK_PATH" ]; then
+        mkdir -p venv-minimal/Frameworks
+        cp "$FRAMEWORK_PATH" venv-minimal/Frameworks/Python 2>/dev/null || true
+        echo "✓ 复制 Python Framework"
+    fi
+fi
 
 # 复制必要的库（排除大而无用的）
 echo "📦 复制必要的 Python 包..."

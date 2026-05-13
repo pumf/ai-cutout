@@ -157,10 +157,10 @@ ai-cutout/
 
 **注意**: macOS 可能会提示"无法验证开发者"，请前往 **系统设置 > 隐私与安全** 中允许打开。
 
-**⚠️ Intel Mac 用户注意**: 
+**⚠️ Intel Mac 用户注意**:
 - 首次启动时如果提示"后端服务启动失败"，可能是因为内置 Python 环境与您的系统架构不匹配
 - 解决方案：确保系统已安装 Python 3.9+，应用会自动尝试使用系统 Python
-- 或者从源码自行构建适合 Intel 架构的版本
+- 或者从源码自行构建适合 Intel 架构的版本（见下方开发指南）
 
 #### Windows
 
@@ -244,6 +244,48 @@ A: 目前主要支持 macOS。Windows 和 Linux 版本正在开发中，敬请�
 - 处理大图片时可能需要较长时间
 - 建议至少有 4GB 可用内存
 - 应用最小窗口尺寸为 800x600
+
+## 开发指南
+
+### 构建不同架构的 macOS 版本
+
+由于内置 Python 环境是架构相关的，构建不同架构的安装包需要不同的步骤：
+
+#### 前置要求
+
+- Node.js 18+
+- Python 3.9+（用于创建 venv）
+
+#### 构建 Apple Silicon (ARM64) 版本
+
+```bash
+npm install
+npm run package:mac:arm64
+```
+
+#### 构建 Intel Mac (x64) 版本
+
+```bash
+npm install
+
+# 首次构建前，创建 x64 架构的 venv
+./scripts/prepare-x64-venv.sh
+
+# 构建 Intel Mac 版本（会自动使用 venv-x64）
+npm run package:mac:x64
+```
+
+#### 构建 Universal 版本
+
+```bash
+npm run package:mac:universal
+```
+
+### 架构说明
+
+- `venv/` - 开发环境（ARM64）
+- `venv-minimal/` - 默认打包用（ARM64，精简版）
+- `venv-x64/` - Intel Mac 打包用（Universal Binary，支持 x86_64 和 arm64）
 
 ## 开发计划
 

@@ -38,9 +38,12 @@ if (app.isPackaged) {
 }
 
 // Check if Python dependencies are installed
+// Note: Only used for system Python check, embedded venv should have all dependencies pre-installed
 const checkPythonDependencies = (pythonCmd: string): boolean => {
   try {
-    execSync(`${pythonCmd} -c "import torch, torchvision, numpy, pillow, onnxruntime, fastapi, uvicorn"`, { stdio: 'ignore' });
+    // Check core dependencies needed for basic functionality (ONNX model)
+    // torch/torchvision are only needed for RMBG-2.0 safetensors models
+    execSync(`${pythonCmd} -c "import numpy, pillow, onnxruntime, fastapi, uvicorn"`, { stdio: 'ignore' });
     return true;
   } catch {
     return false;
@@ -55,38 +58,13 @@ const isEmbeddedVenv = (pythonCmd: string): boolean => {
 // Install Python dependencies automatically (only for system Python, not embedded venv)
 const installPythonDependencies = async (pythonCmd: string): Promise<boolean> => {
   // If using embedded venv, don't show dialog - dependencies should be pre-installed
+  // Build scripts (prepare-venv-for-arch.sh) ensure correct venv is used for each architecture
   if (isEmbeddedVenv(pythonCmd)) {
     console.log('Using embedded venv, skipping dependency installation dialog');
-    // Try to install silently in background
-    return new Promise((resolve) => {
-      const deps = 'torch torchvision numpy pillow onnxruntime fastapi uvicorn python-multipart python-json-logger';
-      const installProcess = spawn(pythonCmd, ['-m', 'pip', 'install', ...deps.split(' ')], {
-        stdio: 'pipe',
-        shell: true,
-      });
-
-      let output = '';
-      installProcess.stdout.on('data', (data) => {
-        output += data.toString();
-        console.log('[pip install]:', data.toString());
-      });
-
-      installProcess.stderr.on('data', (data) => {
-        output += data.toString();
-        console.error('[pip install error]:', data.toString());
-      });
-
-      installProcess.on('close', (code) => {
-        if (code === 0) {
-          console.log('Dependencies installed successfully');
-          resolve(true);
-        } else {
-          console.error('Failed to install dependencies:', output);
-          // Don't show error for embedded venv - just log it
-          resolve(false);
-        }
-      });
-    });
+    console.log('Note: Dependencies should be pre-installed during build phase');
+    // For embedded venv, we don't try to install - just log and return false
+    // This shouldn't happen if build was done correctly
+    return false;
   }
 
   // For system Python, show dialog
@@ -456,6 +434,7 @@ async function createWindow() {
     console.log('Using system Python:', isUsingSystemPython);
     
     // For embedded venv, always try to start backend directly (dependencies should be pre-installed)
+    // venv-minimal (ARM64) and venv-x64 (Intel) are prepared during build phase
     if (usingEmbeddedVenv) {
       console.log('Using embedded venv, starting backend directly...');
       try {
@@ -463,16 +442,14 @@ async function createWindow() {
         console.log('Python backend started successfully with embedded venv');
       } catch (error) {
         console.error('Failed to start Python backend with embedded venv:', error);
-        
-        // Show error to user for Intel Mac
-        if (process.arch === 'x64') {
-          dialog.showErrorBox(
-            '后端启动失败',
-            `无法启动 Python 后端:\n${error}\n\n请尝试以下解决方案:\n1. 重新安装应用\n2. 或者安装系统 Python 3.9+ 并手动安装依赖: pip install torch torchvision numpy pillow onnxruntime fastapi uvicorn python-multipart python-json-logger`
-          );
-        }
+        // Dependencies should be pre-installed in embedded venv
+        // If startup fails, it's likely an architecture mismatch or corrupted venv
+        dialog.showErrorBox(
+          '后端启动失败',
+          `无法启动 Python 后端服务。\n\n可能原因:\n1. 安装包损坏，请重新下载安装\n2. 系统不兼容\n\n错误信息: ${error}`
+        );
       }
-      
+
       const distPath = getDistPath();
       mainWindow.loadFile(path.join(distPath, 'index.html'));
     }
