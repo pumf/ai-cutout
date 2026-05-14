@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import './App.css';
 import { GifReader, GifWriter } from 'omggif';
-import { listFixedModels, loadFixedModel, loadCustomModel, processImageWithModel, selectModel, openExternalUrl, saveImage, selectImage, copyImageToClipboard, checkForUpdates, getBackendPort, selectMultipleImages, selectFolder, saveImageToPath } from '../api';
+import { listFixedModels, loadFixedModel, loadCustomModel, processImageWithModel, selectModel, openExternalUrl, saveImage, selectImage, loadImageFromPath, copyImageToClipboard, checkForUpdates, getBackendPort, selectMultipleImages, selectFolder, saveImageToPath } from '../api';
 import { TitleBar } from './components/TitleBar';
 
 // 声明 vite 注入的全局变量
@@ -45,6 +45,7 @@ function App() {
   const [outputFormat, setOutputFormat] = useState<'png' | 'webp' | 'jpg'>('png');
   const [autoCrop, setAutoCrop] = useState<boolean>(true);
   const [showExportDialog, setShowExportDialog] = useState(false);
+  const [recentFiles, setRecentFiles] = useState<Array<{ path: string; name: string; thumbnail: string; timestamp: number }>>([]);
   const abortBatchRef = useRef<boolean>(false);
   const batchAbortControllerRef = useRef<AbortController | null>(null);
   const batchStartTimeRef = useRef<number>(0);
@@ -516,6 +517,8 @@ function App() {
         // Load directly if no image exists
         loadImageWithFit(result.data);
       }
+      // 记录到最近文件(仅 dialog 选择路径,因有可靠 path)
+      pushRecentFile(result.path, result.name, result.data);
     } catch (error) {
       console.error('Failed to select image:', error);
       showToast('选择图片失败', 'error');
@@ -1265,6 +1268,87 @@ function App() {
       img.onerror = () => reject(new Error('图片解码失败'));
       img.src = dataUrl;
     });
+  };
+
+  // 最近文件:启动时从 localStorage 读取
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('recentFiles');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) setRecentFiles(parsed);
+      }
+    } catch (e) {
+      console.warn('Failed to load recent files:', e);
+    }
+  }, []);
+
+  // 生成 96x96 缩略图(对原始 dataURL 等比缩放居中);失败则返回空串
+  const generateThumbnail = (dataUrl: string, size = 96): Promise<string> => {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const cv = document.createElement('canvas');
+          cv.width = size;
+          cv.height = size;
+          const ctx = cv.getContext('2d')!;
+          // 棋盘格背景(暗示可能含透明)
+          ctx.fillStyle = '#f3f4f6';
+          ctx.fillRect(0, 0, size, size);
+          const ratio = Math.min(size / img.naturalWidth, size / img.naturalHeight);
+          const w = img.naturalWidth * ratio;
+          const h = img.naturalHeight * ratio;
+          ctx.drawImage(img, (size - w) / 2, (size - h) / 2, w, h);
+          resolve(cv.toDataURL('image/jpeg', 0.7));
+        } catch { resolve(''); }
+      };
+      img.onerror = () => resolve('');
+      img.src = dataUrl;
+    });
+  };
+
+  // 把一条记录追加到最近文件,去重 + 按 path 取最新 + 最多 8 条
+  const pushRecentFile = async (path: string, name: string, dataUrl: string) => {
+    if (!path) return; // 没有路径无法重新加载,不存
+    const thumbnail = await generateThumbnail(dataUrl);
+    if (!thumbnail) return;
+    setRecentFiles(prev => {
+      const filtered = prev.filter(r => r.path !== path);
+      const next = [{ path, name, thumbnail, timestamp: Date.now() }, ...filtered].slice(0, 8);
+      try { localStorage.setItem('recentFiles', JSON.stringify(next)); } catch {}
+      return next;
+    });
+  };
+
+  const removeRecentFile = (path: string) => {
+    setRecentFiles(prev => {
+      const next = prev.filter(r => r.path !== path);
+      try { localStorage.setItem('recentFiles', JSON.stringify(next)); } catch {}
+      return next;
+    });
+  };
+
+  const handleOpenRecent = async (entry: { path: string; name: string }) => {
+    try {
+      const res = await loadImageFromPath(entry.path);
+      if (!res.success) {
+        showToast(res.error === 'NOT_FOUND' ? '文件不存在或已移动' : '加载失败', 'error');
+        removeRecentFile(entry.path);
+        return;
+      }
+      if (originalImage || processedImage) {
+        setPendingImageUrl(res.data);
+        setShowPasteConfirm(true);
+      } else {
+        loadImageWithFit(res.data);
+      }
+      // 更新该条目时间戳到最前
+      pushRecentFile(res.path, res.name, res.data);
+    } catch (e) {
+      console.error('Failed to open recent file:', e);
+      showToast('加载失败', 'error');
+    }
   };
 
   // 批量处理时每秒触发一次 ETA 重算
@@ -3730,6 +3814,29 @@ function App() {
                   <div className="drop-zone-hint">
                     支持 PNG、JPG、WEBP、GIF 格式
                   </div>
+                  {recentFiles.length > 0 && (
+                    <div className="recent-files" onClick={e => e.stopPropagation()}>
+                      <div className="recent-files-title">最近打开</div>
+                      <div className="recent-files-grid">
+                        {recentFiles.map(entry => (
+                          <div
+                            key={entry.path}
+                            className="recent-file-item"
+                            title={entry.name + '\n' + entry.path}
+                            onClick={() => handleOpenRecent(entry)}
+                          >
+                            <img src={entry.thumbnail} alt={entry.name} />
+                            <span className="recent-file-name">{entry.name}</span>
+                            <button
+                              className="recent-file-remove"
+                              onClick={(e) => { e.stopPropagation(); removeRecentFile(entry.path); }}
+                              title="从列表移除"
+                            >×</button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
               <input

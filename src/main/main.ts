@@ -548,6 +548,32 @@ ipcMain.handle('select-image', async () => {
   return null;
 });
 
+ipcMain.handle('load-image-from-path', async (_event: any, filePath: string) => {
+  if (!filePath || !fs.existsSync(filePath)) {
+    return { success: false, error: 'NOT_FOUND' };
+  }
+  try {
+    const buffer = fs.readFileSync(filePath);
+    const ext = path.extname(filePath).toLowerCase();
+    const mimeTypes: Record<string, string> = {
+      '.png': 'image/png',
+      '.jpg': 'image/jpeg',
+      '.jpeg': 'image/jpeg',
+      '.webp': 'image/webp',
+      '.gif': 'image/gif',
+    };
+    const mimeType = mimeTypes[ext] || 'image/png';
+    return {
+      success: true,
+      path: filePath,
+      data: `data:${mimeType};base64,${buffer.toString('base64')}`,
+      name: path.basename(filePath),
+    };
+  } catch (e: any) {
+    return { success: false, error: e?.message || 'READ_FAILED' };
+  }
+});
+
 ipcMain.handle('select-multiple-images', async () => {
   const result = await dialog.showOpenDialog(mainWindow!, {
     properties: ['openFile', 'multiSelections'],

@@ -195,6 +195,84 @@ body {
   to { opacity: 1; transform: scale(1); }
 }
 
+/* drop-zone 内的"最近打开"网格 */
+.recent-files {
+  margin-top: 24px;
+  width: 100%;
+  max-width: 560px;
+}
+.recent-files-title {
+  font-size: 12px;
+  color: var(--text-secondary);
+  text-align: center;
+  margin-bottom: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.recent-files-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 12px;
+}
+.recent-file-item {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 6px;
+  background: var(--surface-color);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: transform 0.12s, border-color 0.12s, box-shadow 0.12s;
+}
+.recent-file-item:hover {
+  transform: translateY(-2px);
+  border-color: rgba(59, 130, 246, 0.5);
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.08);
+}
+.recent-file-item img {
+  width: 80px;
+  height: 80px;
+  object-fit: cover;
+  border-radius: 6px;
+}
+.recent-file-name {
+  font-size: 11px;
+  color: var(--text-secondary);
+  width: 100%;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.recent-file-remove {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.5);
+  color: white;
+  border: none;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.recent-file-item:hover .recent-file-remove {
+  opacity: 1;
+}
+.recent-file-remove:hover {
+  background: rgba(239, 68, 68, 0.9);
+}
+
 /* toggle 按钮激活态(用于智能裁切等开关式工具栏按钮) */
 .btn.btn-toggle-active {
   background: rgba(59, 130, 246, 0.12);

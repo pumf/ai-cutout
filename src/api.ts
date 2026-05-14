@@ -2,6 +2,7 @@ declare global {
   interface Window {
     electronAPI?: {
       selectImage: () => Promise<{path: string; data: string; name: string} | null>;
+      loadImageFromPath: (filePath: string) => Promise<{success: true; path: string; data: string; name: string} | {success: false; error: string}>;
       selectMultipleImages: () => Promise<File[] | null>;
       selectFolder: () => Promise<{canceled: boolean; filePaths: string[]} | null>;
       processImage: (imageData: string, filename: string) => Promise<string>;
@@ -47,6 +48,13 @@ export async function selectImage(): Promise<{path: string; data: string; name: 
     throw new Error('Electron API not available');
   }
   return window.electronAPI.selectImage();
+}
+
+export async function loadImageFromPath(filePath: string) {
+  if (!window.electronAPI) {
+    throw new Error('Electron API not available');
+  }
+  return window.electronAPI.loadImageFromPath(filePath);
 }
 
 export async function saveImage(imageData: string, defaultName?: string): Promise<string | null> {

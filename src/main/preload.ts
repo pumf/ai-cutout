@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 
 contextBridge.exposeInMainWorld('electronAPI', {
   selectImage: () => ipcRenderer.invoke('select-image'),
+  loadImageFromPath: (filePath: string) => ipcRenderer.invoke('load-image-from-path', filePath),
   selectMultipleImages: () => ipcRenderer.invoke('select-multiple-images'),
   selectFolder: () => ipcRenderer.invoke('select-folder'),
   processImage: (imageData: string, filename: string) =>
