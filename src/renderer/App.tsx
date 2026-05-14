@@ -1270,6 +1270,16 @@ function App() {
     });
   };
 
+  // 释放上一个 processedImage 的 blob URL(重新抠图 / 切换图片时避免内存泄漏)
+  // useEffect cleanup 时机:新 processedImage 已 commit 到 DOM 后,旧 url 不再被引用
+  useEffect(() => {
+    return () => {
+      if (processedImage && processedImage.startsWith('blob:')) {
+        URL.revokeObjectURL(processedImage);
+      }
+    };
+  }, [processedImage]);
+
   // 最近文件:启动时从 localStorage 读取
   useEffect(() => {
     try {
@@ -1449,15 +1459,13 @@ function App() {
         // This is a simplified version - full GIF processing is too slow for batch
         const blob = new Blob([arrayBuffer], { type: 'image/gif' });
         const url = URL.createObjectURL(blob);
-        setBatchTasks(prev => prev.map(t => 
-          t.id === task.id ? { 
-            ...t, 
-            status: 'success', 
-            progress: 100,
-            processedImage: url,
-            originalImage: url
-          } : t
-        ));
+        setBatchTasks(prev => prev.map(t => {
+          if (t.id !== task.id) return t;
+          if (t.processedImage && t.processedImage.startsWith('blob:') && t.processedImage !== url) {
+            URL.revokeObjectURL(t.processedImage);
+          }
+          return { ...t, status: 'success', progress: 100, processedImage: url, originalImage: url };
+        }));
         return true;
       }
       
@@ -1477,15 +1485,19 @@ function App() {
       const processedBlob = await processImageFrame(base64, signal);
       const url = URL.createObjectURL(processedBlob);
 
-      setBatchTasks(prev => prev.map(t =>
-        t.id === task.id ? {
+      setBatchTasks(prev => prev.map(t => {
+        if (t.id !== task.id) return t;
+        if (t.processedImage && t.processedImage.startsWith('blob:') && t.processedImage !== url) {
+          URL.revokeObjectURL(t.processedImage);
+        }
+        return {
           ...t,
           status: 'success',
           progress: 100,
           processedImage: url,
           originalImage: `data:image/png;base64,${base64}`
-        } : t
-      ));
+        };
+      }));
 
       return true;
     } catch (err) {
