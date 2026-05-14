@@ -47,6 +47,9 @@ function App() {
   const [showExportDialog, setShowExportDialog] = useState(false);
   const abortBatchRef = useRef<boolean>(false);
   const batchAbortControllerRef = useRef<AbortController | null>(null);
+  const batchStartTimeRef = useRef<number>(0);
+  // 强制 ETA 在 task 间隙也刷新 — 每秒 +1,作为依赖让 progress 区重渲染
+  const [etaTick, setEtaTick] = useState(0);
   const [selectedBatchTask, setSelectedBatchTask] = useState<BatchTask | null>(null);
   const [showBatchPreview, setShowBatchPreview] = useState(false);
 
@@ -1264,6 +1267,26 @@ function App() {
     });
   };
 
+  // 批量处理时每秒触发一次 ETA 重算
+  useEffect(() => {
+    if (!isBatchProcessing) return;
+    const id = setInterval(() => setEtaTick(t => t + 1), 1000);
+    return () => clearInterval(id);
+  }, [isBatchProcessing]);
+
+  // 把毫秒数格式化为 "X 秒" / "X 分 Y 秒" / "X 小时 Y 分"
+  const formatEta = (ms: number): string => {
+    if (!isFinite(ms) || ms < 0) return '--';
+    const sec = Math.ceil(ms / 1000);
+    if (sec < 60) return `${sec} 秒`;
+    const min = Math.floor(sec / 60);
+    const remSec = sec % 60;
+    if (min < 60) return remSec > 0 ? `${min} 分 ${remSec} 秒` : `${min} 分`;
+    const hr = Math.floor(min / 60);
+    const remMin = min % 60;
+    return remMin > 0 ? `${hr} 小时 ${remMin} 分` : `${hr} 小时`;
+  };
+
   // Batch processing functions
   const handleBatchFilesSelect = async () => {
     try {
@@ -1445,6 +1468,8 @@ function App() {
     setIsBatchProcessing(true);
     abortBatchRef.current = false;
     batchAbortControllerRef.current = new AbortController();
+    batchStartTimeRef.current = Date.now();
+    setEtaTick(0);
     const signal = batchAbortControllerRef.current.signal;
 
     // Reset all pending/error tasks to pending
@@ -2598,6 +2623,16 @@ function App() {
 
   return (
     <div className="app">
+      {/* 拖拽文件到窗口任意位置时全屏高亮提示(配合 document 级 drop 监听) */}
+      {dragActive && (
+        <div className="drop-overlay">
+          <div className="drop-overlay-content">
+            <div className="drop-overlay-icon">📥</div>
+            <div className="drop-overlay-text">释放鼠标加载图片</div>
+            <div className="drop-overlay-hint">支持 PNG / JPG / WebP / GIF</div>
+          </div>
+        </div>
+      )}
       <TitleBar
         currentModel={currentModel}
         modelStatus={modelStatus}
@@ -3059,21 +3094,36 @@ function App() {
               </div>
 
               {/* Progress */}
-              {isBatchProcessing && (
-                <div className="batch-progress">
-                  <div className="progress-bar">
-                    <div 
-                      className="progress-fill" 
-                      style={{ 
-                        width: `${(batchTasks.filter(t => t.status === 'success' || t.status === 'error').length / batchTasks.length) * 100}%` 
-                      }}
-                    />
+              {isBatchProcessing && (() => {
+                const done = batchTasks.filter(t => t.status === 'success' || t.status === 'error').length;
+                const total = batchTasks.length;
+                const remaining = total - done;
+                const elapsedMs = Date.now() - batchStartTimeRef.current;
+                // 至少完成 1 张且仍有剩余,才显示 ETA;不够数据时只显示"计算中"
+                const etaMs = (done > 0 && remaining > 0)
+                  ? (elapsedMs / done) * remaining
+                  : NaN;
+                void etaTick; // 引用一下让每秒 tick 触发重渲染
+                return (
+                  <div className="batch-progress">
+                    <div className="progress-bar">
+                      <div
+                        className="progress-fill"
+                        style={{ width: `${(done / total) * 100}%` }}
+                      />
+                    </div>
+                    <span className="progress-text">
+                      {done} / {total}
+                      {remaining > 0 && (
+                        <span className="progress-eta">
+                          {' · 预计剩余 '}
+                          {done === 0 ? '计算中…' : formatEta(etaMs)}
+                        </span>
+                      )}
+                    </span>
                   </div>
-                  <span className="progress-text">
-                    {batchTasks.filter(t => t.status === 'success' || t.status === 'error').length} / {batchTasks.length}
-                  </span>
-                </div>
-              )}
+                );
+              })()}
 
               {/* File List */}
               <div className="batch-list">
