@@ -95,11 +95,12 @@ export async function loadCustomModel(modelPath: string, modelId: string): Promi
   return response.json();
 }
 
-export async function processImageWithModel(imageBase64: string): Promise<any> {
+export async function processImageWithModel(imageBase64: string, signal?: AbortSignal): Promise<any> {
   const response = await fetch(`${getBackendUrl()}/process`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ image: imageBase64 })
+    body: JSON.stringify({ image: imageBase64 }),
+    signal,
   });
   
   if (!response.ok) {

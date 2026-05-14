@@ -43,6 +43,7 @@ function App() {
   const [batchPrefix, setBatchPrefix] = useState<string>('removed_bg_');
   const [batchConcurrency, setBatchConcurrency] = useState<number>(2);
   const abortBatchRef = useRef<boolean>(false);
+  const batchAbortControllerRef = useRef<AbortController | null>(null);
   const [selectedBatchTask, setSelectedBatchTask] = useState<BatchTask | null>(null);
   const [showBatchPreview, setShowBatchPreview] = useState(false);
 
@@ -127,6 +128,9 @@ function App() {
   const [showPasteConfirm, setShowPasteConfirm] = useState(false);
   const [pendingImageUrl, setPendingImageUrl] = useState<string | null>(null);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
+
+  // Download model dialog
+  const [downloadDialog, setDownloadDialog] = useState<{ url: string; modelName: string; displayName: string } | null>(null);
 
   // GIF processing state
   const [isGifProcessing, setIsGifProcessing] = useState(false);
@@ -398,28 +402,8 @@ function App() {
     }
   };
 
-  const handleDownloadModel = async (url: string, modelName: string, displayName: string) => {
-    // 二次确认
-    const confirmed = window.confirm(
-      `即将打开浏览器下载模型：${displayName || modelName}\n\n` +
-      `下载说明：\n` +
-      `1. 点击下载按钮获取 model.onnx 文件\n` +
-      `2. 将文件放到应用目录的 model_files/${modelName}/ 文件夹中\n` +
-      `3. 返回应用点击"选择文件"加载模型\n\n` +
-      `是否继续？`
-    );
-    
-    if (!confirmed) {
-      return;
-    }
-    
-    try {
-      await openExternalUrl(url);
-      showToast('正在打开下载页面...', 'info');
-    } catch (e) {
-      console.error('Failed to open download page:', e);
-      showToast('打开下载页面失败', 'error');
-    }
+  const handleDownloadModel = (url: string, modelName: string, displayName: string) => {
+    setDownloadDialog({ url, modelName, displayName });
   };
 
   const handleUpdateDismiss = () => {
@@ -556,11 +540,11 @@ function App() {
   };
 
   // Process a single image frame
-  const processImageFrame = async (base64Data: string): Promise<Blob> => {
+  const processImageFrame = async (base64Data: string, signal?: AbortSignal): Promise<Blob> => {
     console.log('[Process] Starting image processing, base64 length:', base64Data.length);
-    
+
     try {
-      const data = await processImageWithModel(base64Data);
+      const data = await processImageWithModel(base64Data, signal);
       console.log('[Process] API response:', data);
       
       if (!data.success) {
@@ -1265,7 +1249,7 @@ function App() {
     setBatchTasks([]);
   };
 
-  const processBatchTask = async (task: BatchTask): Promise<boolean> => {
+  const processBatchTask = async (task: BatchTask, signal?: AbortSignal): Promise<boolean> => {
     try {
       // Read file
       const arrayBuffer = await task.file.arrayBuffer();
@@ -1310,26 +1294,34 @@ function App() {
       ));
       
       // Process with AI model
-      const processedBlob = await processImageFrame(base64);
+      const processedBlob = await processImageFrame(base64, signal);
       const url = URL.createObjectURL(processedBlob);
-      
-      setBatchTasks(prev => prev.map(t => 
-        t.id === task.id ? { 
-          ...t, 
-          status: 'success', 
+
+      setBatchTasks(prev => prev.map(t =>
+        t.id === task.id ? {
+          ...t,
+          status: 'success',
           progress: 100,
           processedImage: url,
           originalImage: `data:image/png;base64,${base64}`
         } : t
       ));
-      
+
       return true;
     } catch (err) {
+      // 用户主动取消:不标错误,恢复为 pending 以便后续重启批量
+      const isAbort = (err as any)?.name === 'AbortError' || signal?.aborted;
+      if (isAbort) {
+        setBatchTasks(prev => prev.map(t =>
+          t.id === task.id ? { ...t, status: 'pending', progress: 0, error: undefined } : t
+        ));
+        return false;
+      }
       console.error('Batch processing failed:', err);
-      setBatchTasks(prev => prev.map(t => 
-        t.id === task.id ? { 
-          ...t, 
-          status: 'error', 
+      setBatchTasks(prev => prev.map(t =>
+        t.id === task.id ? {
+          ...t,
+          status: 'error',
           error: (err as Error).message,
           progress: 0
         } : t
@@ -1338,29 +1330,31 @@ function App() {
     }
   };
 
-  const processBatchWithRetry = async (task: BatchTask): Promise<boolean> => {
+  const processBatchWithRetry = async (task: BatchTask, signal?: AbortSignal): Promise<boolean> => {
     // First attempt
-    let success = await processBatchTask(task);
-    
-    // Auto retry once if failed
-    if (!success && task.retryCount < 1) {
-      setBatchTasks(prev => prev.map(t => 
-        t.id === task.id ? { 
-          ...t, 
-          status: 'retrying', 
+    let success = await processBatchTask(task, signal);
+
+    // Auto retry once if failed (but not if aborted)
+    if (!success && !signal?.aborted && task.retryCount < 1) {
+      setBatchTasks(prev => prev.map(t =>
+        t.id === task.id ? {
+          ...t,
+          status: 'retrying',
           retryCount: t.retryCount + 1,
           error: undefined
         } : t
       ));
-      
+
       // Small delay before retry
       await new Promise(resolve => setTimeout(resolve, 500));
-      
+
+      if (signal?.aborted) return false;
+
       // Retry
       const retryTask = { ...task, retryCount: task.retryCount + 1 };
-      success = await processBatchTask(retryTask);
+      success = await processBatchTask(retryTask, signal);
     }
-    
+
     return success;
   };
 
@@ -1377,28 +1371,30 @@ function App() {
     
     setIsBatchProcessing(true);
     abortBatchRef.current = false;
-    
+    batchAbortControllerRef.current = new AbortController();
+    const signal = batchAbortControllerRef.current.signal;
+
     // Reset all pending/error tasks to pending
-    setBatchTasks(prev => prev.map(t => 
-      t.status === 'error' || t.status === 'retrying' 
+    setBatchTasks(prev => prev.map(t =>
+      t.status === 'error' || t.status === 'retrying'
         ? { ...t, status: 'pending', progress: 0, error: undefined }
         : t.status === 'success' ? t : { ...t, status: 'pending' }
     ));
-    
+
     // Get pending tasks
     const pendingTasks = batchTasks.filter(t => t.status === 'pending' || t.status === 'error');
-    
+
     // Process with concurrency control
     const executing: Promise<void>[] = [];
     let completed = 0;
     let successCount = 0;
     let errorCount = 0;
-    
+
     for (const task of pendingTasks) {
-      if (abortBatchRef.current) break;
-      
+      if (abortBatchRef.current || signal.aborted) break;
+
       const promise = (async () => {
-        const success = await processBatchWithRetry(task);
+        const success = await processBatchWithRetry(task, signal);
         if (success) {
           successCount++;
         } else {
@@ -1406,25 +1402,31 @@ function App() {
         }
         completed++;
       })();
-      
+
       executing.push(promise);
-      
+
       if (executing.length >= batchConcurrency) {
         await Promise.race(executing);
       }
     }
-    
+
     await Promise.all(executing);
-    
+
     setIsBatchProcessing(false);
-    
-    showToast(`处理完成: ${successCount} 成功, ${errorCount} 失败`, successCount > 0 ? 'success' : 'error');
+    batchAbortControllerRef.current = null;
+
+    if (signal.aborted) {
+      showToast(`已取消: ${successCount} 已完成`, 'info');
+    } else {
+      showToast(`处理完成: ${successCount} 成功, ${errorCount} 失败`, successCount > 0 ? 'success' : 'error');
+    }
   };
 
   const handleStopBatchProcessing = () => {
     abortBatchRef.current = true;
-    setIsBatchProcessing(false);
-    showToast('已停止处理', 'info');
+    // 立即中止所有正在进行的 fetch,而不是等当前一批跑完
+    batchAbortControllerRef.current?.abort();
+    showToast('正在取消...', 'info');
   };
 
   const handleBatchExport = async () => {
@@ -1528,31 +1530,42 @@ function App() {
     }
   };
 
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    setDragActive(false);
-
-    const file = e.dataTransfer.files[0];
-    if (file && file.type.startsWith('image/')) {
-      if (originalImage || processedImage) {
-        // Show confirmation if there's already an image
-        setPendingFile(file);
-        setShowPasteConfirm(true);
-      } else {
-        // Load directly if no image exists
-        loadFileImage(file);
+  // 整个窗口接受图片拖入(而非仅 drop-zone)。
+  // document 级监听同时拦截浏览器默认行为(否则 drop 到非 drop-zone 区域会触发文件导航)。
+  useEffect(() => {
+    const onDragOver = (e: DragEvent) => {
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+      setDragActive(true);
+    };
+    const onDragLeave = (e: DragEvent) => {
+      // 鼠标真正离开窗口才取消,避免在子元素之间移动时闪烁
+      if (e.relatedTarget === null || (e as any).fromElement === null) {
+        setDragActive(false);
       }
-    }
-  };
-
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    setDragActive(true);
-  };
-
-  const handleDragLeave = () => {
-    setDragActive(false);
-  };
+    };
+    const onDrop = (e: DragEvent) => {
+      e.preventDefault();
+      setDragActive(false);
+      const file = e.dataTransfer?.files[0];
+      if (file && file.type.startsWith('image/')) {
+        if (originalImage || processedImage) {
+          setPendingFile(file);
+          setShowPasteConfirm(true);
+        } else {
+          loadFileImage(file);
+        }
+      }
+    };
+    document.addEventListener('dragover', onDragOver);
+    document.addEventListener('dragleave', onDragLeave);
+    document.addEventListener('drop', onDrop);
+    return () => {
+      document.removeEventListener('dragover', onDragOver);
+      document.removeEventListener('dragleave', onDragLeave);
+      document.removeEventListener('drop', onDrop);
+    };
+  }, [originalImage, processedImage]);
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     if (!originalImage && !processedImage) return;
@@ -1744,12 +1757,18 @@ function App() {
           handleProcess();
         }
       }
-      // Ctrl/Cmd + Z: Undo
-      if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+      // Ctrl/Cmd + Z: Undo, Ctrl/Cmd + Shift + Z 或 Ctrl/Cmd + Y: Redo
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) {
         e.preventDefault();
-        if (historyIndex > 0) {
-          handleUndo();
+        if (e.shiftKey) {
+          if (historyIndex < maskHistory.length - 1) handleRedo();
+        } else {
+          if (historyIndex > 0) handleUndo();
         }
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'y') {
+        e.preventDefault();
+        if (historyIndex < maskHistory.length - 1) handleRedo();
       }
       // Ctrl/Cmd + B: Toggle background picker
       if ((e.ctrlKey || e.metaKey) && e.key === 'b') {
@@ -1774,7 +1793,7 @@ function App() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [originalImage, processedImage, isProcessing, historyIndex, showBgPicker]);
+  }, [originalImage, processedImage, isProcessing, historyIndex, maskHistory.length, showBgPicker]);
 
   // Handle paste image
   useEffect(() => {
@@ -2005,6 +2024,19 @@ function App() {
   const handleUndo = () => {
     if (historyIndex > 0 && maskCanvasRef.current) {
       const newIndex = historyIndex - 1;
+      const ctx = maskCanvasRef.current.getContext('2d', { willReadFrequently: true });
+      if (ctx && maskHistory[newIndex]) {
+        ctx.putImageData(maskHistory[newIndex], 0, 0);
+        setHistoryIndex(newIndex);
+        applyMaskToOutput();
+      }
+    }
+  };
+
+  // Redo
+  const handleRedo = () => {
+    if (historyIndex < maskHistory.length - 1 && maskCanvasRef.current) {
+      const newIndex = historyIndex + 1;
       const ctx = maskCanvasRef.current.getContext('2d', { willReadFrequently: true });
       if (ctx && maskHistory[newIndex]) {
         ctx.putImageData(maskHistory[newIndex], 0, 0);
@@ -2578,8 +2610,8 @@ function App() {
                                 重选
                               </button>
                             )}
-                            {/* 2.0 模型始终显示下载按钮 */}
-                            {m.download_url && !isLoaded && (
+                            {/* 仅对非内置模型显示下载按钮(1.4 已随安装包内置) */}
+                            {m.download_url && !isLoaded && m.id !== '1.4' && (
                               <button
                                 className="btn btn-small btn-link"
                                 onClick={() => handleDownloadModel(m.download_url!, m.name, m.display_name || m.name)}
@@ -2603,7 +2635,7 @@ function App() {
                                 选择文件
                               </button>
                             )}
-                            {m.download_url && (
+                            {m.download_url && m.id !== '1.4' && (
                               <button
                                 className="btn btn-small btn-link"
                                 onClick={() => handleDownloadModel(m.download_url!, m.name, m.display_name || m.name)}
@@ -3385,9 +3417,17 @@ function App() {
                   className="btn btn-icon-only"
                   onClick={handleUndo}
                   disabled={historyIndex <= 0}
-                  title={historyIndex <= 0 ? "无法撤回" : `撤回 (${historyIndex})`}
+                  title={historyIndex <= 0 ? "无法撤回" : `撤回 (${historyIndex})  ⌘Z`}
                 >
                   <span className="btn-icon">↩️</span>
+                </button>
+                <button
+                  className="btn btn-icon-only"
+                  onClick={handleRedo}
+                  disabled={historyIndex >= maskHistory.length - 1}
+                  title={historyIndex >= maskHistory.length - 1 ? "无法重做" : `重做 (${maskHistory.length - 1 - historyIndex})  ⇧⌘Z`}
+                >
+                  <span className="btn-icon">↪️</span>
                 </button>
               </div>
 
@@ -3454,9 +3494,6 @@ function App() {
               ref={originalPanelRef}
               className={`panel-content ${dragActive ? 'drag-active' : ''} ${isDragging || isOriginalDragging ? 'dragging' : ''} ${editMode !== 'none' ? 'edit-mode' : ''}`}
               style={{ cursor: editMode !== 'none' ? (isOriginalDragging ? 'grabbing' : 'default') : 'grab' }}
-              onDrop={handleDrop}
-              onDragOver={handleDragOver}
-              onDragLeave={handleDragLeave}
               onClick={() => !originalImage && fileInputRef.current?.click()}
               onWheel={(e) => handleZoom(e as unknown as WheelEvent, originalPanelRef)}
               onMouseDown={editMode === 'none' ? handleMouseDown : handleOriginalMouseDown}
@@ -3812,6 +3849,45 @@ function App() {
           </div>
         </div>
       )}
+
+      {/* 下载模型说明弹框 */}
+      {downloadDialog && (
+        <div className="modal-overlay modal-overlay-blocking" onClick={() => setDownloadDialog(null)}>
+          <div className="modal" style={{ maxWidth: 480 }} onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>下载 {downloadDialog.displayName}</h3>
+              <button className="modal-close" onClick={() => setDownloadDialog(null)}>×</button>
+            </div>
+            <div className="modal-content" style={{ padding: 20 }}>
+              <p style={{ marginBottom: 16, color: 'var(--text-secondary)', fontSize: 13, lineHeight: 1.6 }}>
+                模型文件较大,需在浏览器中手动下载。下载完成后按以下步骤加载:
+              </p>
+              <ol style={{ marginBottom: 20, paddingLeft: 22, lineHeight: 2, fontSize: 14 }}>
+                <li>点击下方"打开下载页",在浏览器中下载 <code style={{ background: 'var(--bg-color)', padding: '1px 6px', borderRadius: 4, fontFamily: 'monospace', fontSize: 13 }}>model.onnx</code></li>
+                <li>回到模型列表,点击该模型的"选择文件",选取刚下载的文件 — 应用会自动放置并加载</li>
+              </ol>
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                <button
+                  className="btn btn-secondary"
+                  onClick={() => setDownloadDialog(null)}
+                >稍后</button>
+                <button
+                  className="btn btn-primary"
+                  onClick={async () => {
+                    try {
+                      await openExternalUrl(downloadDialog.url);
+                      showToast('已在浏览器打开下载页', 'success');
+                    } catch {
+                      showToast('打开失败', 'error');
+                    }
+                    setDownloadDialog(null);
+                  }}
+                >打开下载页</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -3949,7 +4025,7 @@ function BatchPreviewModal({ task, onClose, onPrev, onNext, indexInfo }: BatchPr
     <div className="modal-overlay modal-overlay-blocking">
       <div className="modal modal-preview resizable-modal">
         <div className="modal-header">
-          <h3>
+          <h3 title={task.fileName}>
             图片预览 - {task.fileName}
             {indexInfo && (
               <span style={{ marginLeft: 8, fontSize: 13, color: 'var(--text-secondary)', fontWeight: 'normal' }}>
