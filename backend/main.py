@@ -17,7 +17,7 @@ except ImportError:
     transforms = None
 
 from PIL import Image
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 import uvicorn
@@ -41,6 +41,14 @@ logger.info(f"Logging to: {log_file}")
 MODEL_DIR = Path(__file__).parent.parent / 'model_files'
 OUTPUT_DIR = Path(__file__).parent / 'output'
 OUTPUT_DIR.mkdir(exist_ok=True)
+
+
+def _safe_unlink(path: Path) -> None:
+    """安全删除文件,失败仅记录不抛错(用于响应后的临时文件清理)"""
+    try:
+        path.unlink(missing_ok=True)
+    except OSError as e:
+        logger.warning(f"Failed to remove {path}: {e}")
 
 model = None
 transform_image = None
@@ -367,6 +375,22 @@ def process_image(image: Image.Image) -> Image.Image:
 async def lifespan(app: FastAPI):
     logger.info("Starting AI Background Remover API...")
     logger.info(f"Model directory: {MODEL_DIR}")
+
+    # 清理上次运行残留的临时输出文件(/process 现在用 BackgroundTasks 在响应后删除,
+    # 但若进程被强杀仍可能残留,启动时再清一次作双保险)
+    try:
+        removed = 0
+        for p in OUTPUT_DIR.glob('output_*.png'):
+            try:
+                p.unlink()
+                removed += 1
+            except OSError:
+                pass
+        if removed:
+            logger.info(f"Cleaned {removed} stale output files")
+    except Exception as e:
+        logger.warning(f"Failed to clean output dir: {e}")
+
     models = scan_available_models()
     logger.info(f"Available models: {models}")
     
@@ -559,7 +583,7 @@ async def download_model_endpoint(model_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/process")
-async def process_upload(request: Request):
+async def process_upload(request: Request, background_tasks: BackgroundTasks):
     global model
     
     logger.info(f"=== Process request started ===")
@@ -604,11 +628,14 @@ async def process_upload(request: Request):
         output_path = OUTPUT_DIR / f"output_{os.urandom(8).hex()}.png"
         result.save(output_path, 'PNG')
         logger.info(f"Saved result to: {output_path}")
-        
+
+        # 响应发送完成后自动删除临时文件,避免 backend/output/ 堆积
+        background_tasks.add_task(_safe_unlink, output_path)
+
         return FileResponse(
             output_path,
             media_type="image/png",
-            headers={"X-Filename": output_path.name}
+            headers={"X-Filename": output_path.name},
         )
         
     except HTTPException:
