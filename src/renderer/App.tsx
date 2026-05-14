@@ -116,6 +116,8 @@ function App() {
   // Background settings
   const [bgColor, setBgColor] = useState<string>('transparent');
   const [bgImage, setBgImage] = useState<string | null>(null);
+  const [bgImageName, setBgImageName] = useState<string | null>(null);
+  const [recentColors, setRecentColors] = useState<string[]>([]);
   const [showBgPicker, setShowBgPicker] = useState(false);
 
   // Brush slider tooltip state
@@ -1386,6 +1388,26 @@ function App() {
       console.warn('Failed to load recent files:', e);
     }
   }, []);
+
+  // 最近使用的自定义颜色:启动读 + 自定义颜色变更时追加
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('recentColors');
+      if (raw) {
+        const arr = JSON.parse(raw);
+        if (Array.isArray(arr)) setRecentColors(arr.filter(c => typeof c === 'string').slice(0, 6));
+      }
+    } catch {}
+  }, []);
+
+  const addRecentColor = (color: string) => {
+    if (!color || color === 'transparent') return;
+    setRecentColors(prev => {
+      const next = [color, ...prev.filter(c => c.toLowerCase() !== color.toLowerCase())].slice(0, 6);
+      try { localStorage.setItem('recentColors', JSON.stringify(next)); } catch {}
+      return next;
+    });
+  };
 
   // 用户偏好:导出格式 / 智能裁切 / 批量前缀 / 批量并发 — 启动读 + 变更写
   // 注意:不持久化 bgColor(每次启动期望默认透明,避免上次的颜色残留干扰)
@@ -3698,7 +3720,7 @@ function App() {
                           <div
                             key={preset.value}
                             className={`bg-picker-color ${bgColor === preset.value && !bgImage ? 'active' : ''}`}
-                            onClick={() => { setBgColor(preset.value); setBgImage(null); showToast(`背景已设为${preset.label}`, 'success'); }}
+                            onClick={() => { setBgColor(preset.value); setBgImage(null); }}
                             style={preset.value !== 'transparent' ? { backgroundColor: preset.value } : undefined}
                             title={preset.label}
                           >
@@ -3709,50 +3731,97 @@ function App() {
                     </div>
                     <div className="bg-picker-section">
                       <div className="bg-picker-label">自定义颜色</div>
-                      <input
-                        type="color"
-                        value={bgColor === 'transparent' ? '#ffffff' : bgColor}
-                        onChange={(e) => { setBgColor(e.target.value); setBgImage(null); showToast('背景颜色已更新', 'success'); }}
-                        className="bg-picker-color-input"
-                        title="选择自定义颜色"
-                      />
+                      <div className="bg-picker-custom-row">
+                        <input
+                          type="color"
+                          value={bgColor === 'transparent' ? '#ffffff' : bgColor}
+                          onChange={(e) => { setBgColor(e.target.value); setBgImage(null); }}
+                          onBlur={(e) => addRecentColor(e.target.value)}
+                          className="bg-picker-color-input"
+                          title="拾色器"
+                        />
+                        <input
+                          type="text"
+                          value={bgColor === 'transparent' ? '' : bgColor.toUpperCase()}
+                          onChange={(e) => {
+                            const raw = e.target.value.trim();
+                            if (raw === '' || raw === '#') return;
+                            const hex = raw.startsWith('#') ? raw : '#' + raw;
+                            // 支持 #RGB / #RRGGBB 即时应用
+                            if (/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(hex)) {
+                              setBgColor(hex.toLowerCase());
+                              setBgImage(null);
+                            }
+                          }}
+                          onBlur={(e) => {
+                            const raw = e.target.value.trim();
+                            const hex = raw.startsWith('#') ? raw : '#' + raw;
+                            if (/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(hex)) {
+                              addRecentColor(hex.toLowerCase());
+                            }
+                          }}
+                          placeholder="#RRGGBB"
+                          className="bg-picker-hex-input"
+                          spellCheck={false}
+                          maxLength={7}
+                          title="可粘贴 hex 色值,如 #3B82F6"
+                        />
+                      </div>
+                      {recentColors.length > 0 && (
+                        <>
+                          <div className="bg-picker-sublabel">最近使用</div>
+                          <div className="bg-picker-colors">
+                            {recentColors.map(c => (
+                              <div
+                                key={c}
+                                className={`bg-picker-color ${bgColor === c && !bgImage ? 'active' : ''}`}
+                                onClick={() => { setBgColor(c); setBgImage(null); }}
+                                style={{ backgroundColor: c }}
+                                title={c}
+                              />
+                            ))}
+                          </div>
+                        </>
+                      )}
                     </div>
                     <div className="bg-picker-section">
                       <div className="bg-picker-label">背景图片</div>
-                      <button
-                        className="btn btn-secondary btn-sm"
-                        onClick={() => {
-                          const input = document.createElement('input');
-                          input.type = 'file';
-                          input.accept = 'image/*';
-                          input.onchange = (e) => {
-                            const file = (e.target as HTMLInputElement).files?.[0];
-                            if (file) {
-                              const reader = new FileReader();
-                              reader.onload = (e) => {
-                                setBgImage(e.target?.result as string);
-                                showToast('背景图片已设置', 'success');
-                              };
-                              reader.readAsDataURL(file);
-                            }
-                          };
-                          input.click();
-                        }}
-                      >
-                        📁 选择图片
-                      </button>
-                      {bgImage && (
+                      {bgImage ? (
+                        <div className="bg-image-preview">
+                          <img src={bgImage} alt={bgImageName || '背景图'} className="bg-image-thumb" />
+                          <span className="bg-image-name" title={bgImageName || ''}>
+                            {bgImageName || '已选背景图'}
+                          </span>
                           <button
-                          className="btn btn-outline btn-sm"
-                          onClick={() => { setBgImage(null); showToast('背景图片已清除', 'info'); }}
-                          style={{ marginLeft: '8px' }}
+                            className="bg-image-clear"
+                            onClick={() => { setBgImage(null); setBgImageName(null); }}
+                            title="清除背景图"
+                          >×</button>
+                        </div>
+                      ) : (
+                        <button
+                          className="btn btn-secondary btn-sm"
+                          onClick={() => {
+                            const input = document.createElement('input');
+                            input.type = 'file';
+                            input.accept = 'image/*';
+                            input.onchange = (e) => {
+                              const file = (e.target as HTMLInputElement).files?.[0];
+                              if (file) {
+                                const reader = new FileReader();
+                                reader.onload = (ev) => {
+                                  setBgImage(ev.target?.result as string);
+                                  setBgImageName(file.name);
+                                };
+                                reader.readAsDataURL(file);
+                              }
+                            };
+                            input.click();
+                          }}
                         >
-                          ❌ 清除
+                          📁 选择图片
                         </button>
                       )}
-                    </div>
-                    <div className="bg-picker-close" onClick={() => setShowBgPicker(false)}>
-                      关闭
                     </div>
                   </div>
                 )}
