@@ -149,6 +149,53 @@ body {
   50% { opacity: 0.5; }
 }
 
+/* toggle 按钮激活态(用于智能裁切等开关式工具栏按钮) */
+.btn.btn-toggle-active {
+  background: rgba(59, 130, 246, 0.12);
+  border-color: rgba(59, 130, 246, 0.4);
+  color: #2563eb;
+}
+
+/* 输出格式下拉(工具栏) */
+.output-format-select {
+  height: 32px;
+  padding: 0 28px 0 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--surface-color);
+  font-size: 12px;
+  color: var(--text-primary);
+  cursor: pointer;
+  outline: none;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path fill='%23666' d='M0 0l5 6 5-6z'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+}
+.output-format-select:hover:not(:disabled) {
+  border-color: var(--text-secondary);
+}
+.output-format-select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* TitleBar 模型加载 spinner */
+.model-loading-spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(0, 0, 0, 0.12);
+  border-top-color: #f59e0b;
+  border-radius: 50%;
+  animation: titlebar-spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes titlebar-spin {
+  to { transform: rotate(360deg); }
+}
+
 /* Icon Button */
 .titlebar-icon-btn {
   width: 24px;
@@ -2405,7 +2452,6 @@ body {
 .btn-text:disabled {
   opacity: 0.5;
   cursor: not-allowed;
-}
 }
 
 .help-deps .btn:hover {

@@ -20,16 +20,25 @@ export function TitleBar({ currentModel, modelStatus, onShowModelSelector, onSho
         
         {/* 右侧：模型选择和帮助按钮 */}
         <div className="titlebar-right">
-          <button 
-            className="titlebar-model-btn" 
+          <button
+            className="titlebar-model-btn"
             onClick={onShowModelSelector}
-            title="点击切换AI模型"
+            title={modelStatus === 'loading' ? '模型加载中,请稍候' : '点击切换 AI 模型'}
           >
-            <span className="model-icon">🤖</span>
-            <span className="model-name-short">
-              {currentModel?.display_name?.split(' ')[0] || currentModel?.name || '选择模型'}
-            </span>
-            <span className={`status-indicator ${modelStatus}`}></span>
+            {modelStatus === 'loading' ? (
+              <>
+                <span className="model-loading-spinner" />
+                <span className="model-name-short">加载中...</span>
+              </>
+            ) : (
+              <>
+                <span className="model-icon">🤖</span>
+                <span className="model-name-short">
+                  {currentModel?.display_name?.split(' ')[0] || currentModel?.name || '选择模型'}
+                </span>
+                <span className={`status-indicator ${modelStatus}`}></span>
+              </>
+            )}
           </button>
           <button className="titlebar-icon-btn" onClick={onShowHelp} title="帮助说明">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

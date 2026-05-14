@@ -42,6 +42,9 @@ function App() {
   const [batchOutputDir, setBatchOutputDir] = useState<string>('');
   const [batchPrefix, setBatchPrefix] = useState<string>('removed_bg_');
   const [batchConcurrency, setBatchConcurrency] = useState<number>(2);
+  const [outputFormat, setOutputFormat] = useState<'png' | 'webp' | 'jpg'>('png');
+  const [autoCrop, setAutoCrop] = useState<boolean>(true);
+  const [showExportDialog, setShowExportDialog] = useState(false);
   const abortBatchRef = useRef<boolean>(false);
   const batchAbortControllerRef = useRef<AbortController | null>(null);
   const [selectedBatchTask, setSelectedBatchTask] = useState<BatchTask | null>(null);
@@ -337,6 +340,7 @@ function App() {
     setLoadingModelId(modelId);
     setErrorModelId(null);
     setIsLoadingModel(true);
+    setModelStatus('loading');
     try {
       const data = await loadFixedModel(modelId);
       if (data.success) {
@@ -368,34 +372,36 @@ function App() {
     setIsLoadingModel(true);
     try {
       const result = await selectModel();
-      if (result) {
-        const loadResult = await loadCustomModel(result.path, modelId);
-        if (loadResult.success) {
-          setCurrentModel(loadResult.model);
-          setModelStatus('ready');
-          
-          // Update available models to reflect the custom loaded model
-          setAvailableModels(prev => prev.map(m => {
-            if (m.id === modelId) {
-              // Calculate file size in MB
-              const fileSizeMB = Math.round(result.size / (1024 * 1024));
-              return {
-                ...m,
-                exists: true,
-                size_mb: fileSizeMB,
-                path: result.path
-              };
-            }
-            return m;
-          }));
-          
-          showToast('模型加载成功', 'success');
-        } else {
-          showToast('加载模型失败: ' + (loadResult.error || '未知错误'), 'error');
-        }
+      if (!result) return;
+      setModelStatus('loading');
+      const loadResult = await loadCustomModel(result.path, modelId);
+      if (loadResult.success) {
+        setCurrentModel(loadResult.model);
+        setModelStatus('ready');
+
+        // Update available models to reflect the custom loaded model
+        setAvailableModels(prev => prev.map(m => {
+          if (m.id === modelId) {
+            // Calculate file size in MB
+            const fileSizeMB = Math.round(result.size / (1024 * 1024));
+            return {
+              ...m,
+              exists: true,
+              size_mb: fileSizeMB,
+              path: result.path
+            };
+          }
+          return m;
+        }));
+
+        showToast('模型加载成功', 'success');
+      } else {
+        setModelStatus('error');
+        showToast('加载模型失败: ' + (loadResult.error || '未知错误'), 'error');
       }
     } catch (e) {
       console.error('Failed to load custom model:', e);
+      setModelStatus('error');
       showToast('加载模型失败', 'error');
     } finally {
       setIsLoadingModel(false);
@@ -1191,6 +1197,73 @@ function App() {
     return btoa(result);
   };
 
+  // 把 PNG dataURL 用 canvas 重新编码到目标格式;jpg 不支持透明,先铺白底
+  const convertImageFormat = (dataUrl: string, format: 'png' | 'webp' | 'jpg'): Promise<string> => {
+    if (format === 'png') return Promise.resolve(dataUrl);
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return reject(new Error('canvas 2d 不可用'));
+        if (format === 'jpg') {
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+        }
+        ctx.drawImage(img, 0, 0);
+        const mime = format === 'jpg' ? 'image/jpeg' : 'image/webp';
+        resolve(canvas.toDataURL(mime, 0.92));
+      };
+      img.onerror = () => reject(new Error('图片解码失败'));
+      img.src = dataUrl;
+    });
+  };
+
+  const formatExt = (f: 'png' | 'webp' | 'jpg') => f === 'jpg' ? 'jpg' : f;
+
+  // 智能裁切:扫描 alpha 通道找非透明区域 bbox,裁紧后返回新 PNG dataURL
+  // alpha 阈值取 10 是为了忽略肉眼几乎不可见的边缘羽化噪点
+  const cropToContent = (dataUrl: string): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        const cv = document.createElement('canvas');
+        cv.width = img.naturalWidth;
+        cv.height = img.naturalHeight;
+        const ctx = cv.getContext('2d');
+        if (!ctx) return reject(new Error('canvas 2d 不可用'));
+        ctx.drawImage(img, 0, 0);
+        const imgData = ctx.getImageData(0, 0, cv.width, cv.height);
+        const { data, width, height } = imgData;
+        let minX = width, minY = height, maxX = -1, maxY = -1;
+        for (let y = 0; y < height; y++) {
+          for (let x = 0; x < width; x++) {
+            if (data[(y * width + x) * 4 + 3] > 10) {
+              if (x < minX) minX = x;
+              if (x > maxX) maxX = x;
+              if (y < minY) minY = y;
+              if (y > maxY) maxY = y;
+            }
+          }
+        }
+        if (maxX < 0) { resolve(dataUrl); return; } // 全透明,不裁
+        const w = maxX - minX + 1;
+        const h = maxY - minY + 1;
+        if (w === width && h === height) { resolve(dataUrl); return; } // 无可裁
+        const out = document.createElement('canvas');
+        out.width = w;
+        out.height = h;
+        const octx = out.getContext('2d')!;
+        octx.putImageData(imgData, -minX, -minY);
+        resolve(out.toDataURL('image/png'));
+      };
+      img.onerror = () => reject(new Error('图片解码失败'));
+      img.src = dataUrl;
+    });
+  };
+
   // Batch processing functions
   const handleBatchFilesSelect = async () => {
     try {
@@ -1505,21 +1578,29 @@ function App() {
 
   const handleSave = async () => {
     if (!processedImage) return;
-    
+
     try {
-      const defaultName = isOriginalGif ? 'removed_bg.gif' : 'removed_bg.png';
-      
-      // 如果是 blob URL（GIF），需要获取数据并转换为 base64
       let imageData = processedImage;
-      if (processedImage.startsWith('blob:')) {
-        showToast('正在准备导出...', 'info');
-        const response = await fetch(processedImage);
-        const blob = await response.blob();
-        const arrayBuffer = await blob.arrayBuffer();
-        const base64 = arrayBufferToBase64(arrayBuffer);
-        imageData = `data:image/gif;base64,${base64}`;
+      let defaultName: string;
+
+      if (isOriginalGif) {
+        // GIF 保持 GIF 格式(不能直接转其它静态格式)
+        defaultName = 'removed_bg.gif';
+        if (processedImage.startsWith('blob:')) {
+          showToast('正在准备导出...', 'info');
+          const response = await fetch(processedImage);
+          const blob = await response.blob();
+          const arrayBuffer = await blob.arrayBuffer();
+          const base64 = arrayBufferToBase64(arrayBuffer);
+          imageData = `data:image/gif;base64,${base64}`;
+        }
+      } else {
+        // 普通图片:可选先智能裁切去透明边,再按用户选的格式转换
+        defaultName = `removed_bg.${formatExt(outputFormat)}`;
+        if (autoCrop) imageData = await cropToContent(imageData);
+        if (outputFormat !== 'png') imageData = await convertImageFormat(imageData, outputFormat);
       }
-      
+
       const result = await saveImage(imageData, defaultName);
       if (result) {
         showToast('图片已导出', 'success');
@@ -2434,8 +2515,16 @@ function App() {
     
     const composedCanvas = await composeImageWithBackground();
     if (!composedCanvas) return;
-    
-    const result = await saveImage(composedCanvas.toDataURL('image/png'), 'removed_bg_edited.png');
+
+    // 智能裁切:如果用户开启 + 当前是透明背景,先裁掉透明边;
+    // 若有底色/底图,合成后无透明像素,裁切不会触发(cropToContent 返回原图)
+    let dataUrl = composedCanvas.toDataURL('image/png');
+    if (autoCrop) dataUrl = await cropToContent(dataUrl);
+
+    // 按输出格式转换(jpg 内部会铺白底,webp/png 保留透明)
+    if (outputFormat !== 'png') dataUrl = await convertImageFormat(dataUrl, outputFormat);
+
+    const result = await saveImage(dataUrl, `removed_bg_edited.${formatExt(outputFormat)}`);
     if (result) {
       showToast('图片已导出', 'success');
     }
@@ -3209,9 +3298,9 @@ function App() {
             )}
             <button
               className="btn btn-secondary"
-              onClick={processedImage ? handleSaveWithMask : handleSave}
+              onClick={() => processedImage && setShowExportDialog(true)}
               disabled={!processedImage}
-              title={!processedImage ? "请先处理图片" : "保存处理结果为PNG图片"}
+              title={!processedImage ? "请先处理图片" : "导出为图片"}
             >
               <span className="btn-icon">💾</span>
               <span className="btn-text">导出</span>
@@ -3844,6 +3933,60 @@ function App() {
                 <button className="btn btn-primary" onClick={confirmPaste}>
                   确认替换
                 </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 导出选项弹框 */}
+      {showExportDialog && (
+        <div className="modal-overlay modal-overlay-blocking" onClick={() => setShowExportDialog(false)}>
+          <div className="modal" style={{ maxWidth: 420 }} onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>导出图片</h3>
+              <button className="modal-close" onClick={() => setShowExportDialog(false)}>×</button>
+            </div>
+            <div className="modal-content" style={{ padding: 20 }}>
+              <div style={{ marginBottom: 18 }}>
+                <label style={{ display: 'block', fontSize: 13, color: 'var(--text-secondary)', marginBottom: 6 }}>
+                  输出格式 {isOriginalGif && <span style={{ color: '#94a3b8' }}>(GIF 文件锁定为 GIF)</span>}
+                </label>
+                <select
+                  className="output-format-select"
+                  value={outputFormat}
+                  onChange={(e) => setOutputFormat(e.target.value as 'png' | 'webp' | 'jpg')}
+                  disabled={isOriginalGif}
+                  style={{ width: '100%' }}
+                >
+                  <option value="png">PNG — 无损,支持透明</option>
+                  <option value="webp">WebP — 较小,支持透明</option>
+                  <option value="jpg">JPG — 最小,不支持透明(以白色填充)</option>
+                </select>
+              </div>
+              <div style={{ marginBottom: 20 }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: isOriginalGif ? 'not-allowed' : 'pointer', opacity: isOriginalGif ? 0.5 : 1 }}>
+                  <input
+                    type="checkbox"
+                    checked={autoCrop}
+                    onChange={(e) => setAutoCrop(e.target.checked)}
+                    disabled={isOriginalGif}
+                  />
+                  <span style={{ fontSize: 14 }}>智能裁切 — 自动去除透明边,文件更小</span>
+                </label>
+              </div>
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                <button
+                  className="btn btn-secondary"
+                  onClick={() => setShowExportDialog(false)}
+                >取消</button>
+                <button
+                  className="btn btn-primary"
+                  onClick={async () => {
+                    setShowExportDialog(false);
+                    await handleSaveWithMask();
+                  }}
+                >导出</button>
               </div>
             </div>
           </div>
