@@ -118,6 +118,12 @@ function App() {
   const [bgImage, setBgImage] = useState<string | null>(null);
   const [bgImageName, setBgImageName] = useState<string | null>(null);
   const [recentColors, setRecentColors] = useState<string[]>([]);
+  const [bgFillMode, setBgFillMode] = useState<'cover' | 'contain' | 'center' | 'repeat'>('cover');
+  const [bgAlpha, setBgAlpha] = useState<number>(100); // 0-100 纯色背景不透明度
+  const [bgScale, setBgScale] = useState<number>(100); // 50-300 背景图缩放
+  const [bgOffsetX, setBgOffsetX] = useState<number>(0); // -50..50 X 偏移(%)
+  const [bgOffsetY, setBgOffsetY] = useState<number>(0); // -50..50 Y 偏移(%)
+  const [showBgAdvanced, setShowBgAdvanced] = useState(false);
   const [showBgPicker, setShowBgPicker] = useState(false);
 
   // Brush slider tooltip state
@@ -1235,6 +1241,69 @@ function App() {
 
   const formatExt = (f: 'png' | 'webp' | 'jpg') => f === 'jpg' ? 'jpg' : f;
 
+  // hex + alpha(0-100) → 用于 canvas fillStyle / CSS 的颜色字符串
+  // bgColor === 'transparent' 直接返回 transparent
+  const colorWithAlpha = (hex: string, alphaPct: number): string => {
+    if (!hex || hex === 'transparent') return 'transparent';
+    const m = hex.replace('#', '').match(/^([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i);
+    if (!m) return hex; // 不识别的格式原样返回
+    if (alphaPct >= 100) return hex; // 完全不透明,保留 hex(更直观)
+    const a = Math.max(0, Math.min(1, alphaPct / 100));
+    return `rgba(${parseInt(m[1], 16)}, ${parseInt(m[2], 16)}, ${parseInt(m[3], 16)}, ${a.toFixed(3)})`;
+  };
+
+  // 在指定 ctx 上按填充模式绘制背景图(供合成与导出复用)
+  // scale: center/repeat 模式的额外缩放(50-300,百分比);cover/contain 时忽略
+  // offsetXPct / offsetYPct: 额外偏移,基于 canvas 尺寸的百分比
+  const drawBackgroundImage = (
+    ctx: CanvasRenderingContext2D,
+    bgImg: HTMLImageElement,
+    width: number,
+    height: number,
+    mode: 'cover' | 'contain' | 'center' | 'repeat',
+    scale: number = 100,
+    offsetXPct: number = 0,
+    offsetYPct: number = 0
+  ) => {
+    const imgRatio = bgImg.width / bgImg.height;
+    const canvasRatio = width / height;
+    const offX = (offsetXPct / 100) * width;
+    const offY = (offsetYPct / 100) * height;
+
+    if (mode === 'cover') {
+      let dw, dh, ox, oy;
+      if (imgRatio > canvasRatio) { dh = height; dw = height * imgRatio; ox = (width - dw) / 2; oy = 0; }
+      else { dw = width; dh = width / imgRatio; ox = 0; oy = (height - dh) / 2; }
+      ctx.drawImage(bgImg, ox + offX, oy + offY, dw, dh);
+    } else if (mode === 'contain') {
+      let dw, dh, ox, oy;
+      if (imgRatio > canvasRatio) { dw = width; dh = width / imgRatio; ox = 0; oy = (height - dh) / 2; }
+      else { dh = height; dw = height * imgRatio; ox = (width - dw) / 2; oy = 0; }
+      ctx.drawImage(bgImg, ox + offX, oy + offY, dw, dh);
+    } else if (mode === 'center') {
+      const s = scale / 100;
+      const dw = bgImg.width * s;
+      const dh = bgImg.height * s;
+      ctx.drawImage(bgImg, (width - dw) / 2 + offX, (height - dh) / 2 + offY, dw, dh);
+    } else if (mode === 'repeat') {
+      // 用 ctx.translate 实现 pattern 偏移
+      const s = scale / 100;
+      const tmp = document.createElement('canvas');
+      tmp.width = Math.max(1, Math.round(bgImg.width * s));
+      tmp.height = Math.max(1, Math.round(bgImg.height * s));
+      const tctx = tmp.getContext('2d')!;
+      tctx.drawImage(bgImg, 0, 0, tmp.width, tmp.height);
+      const pattern = ctx.createPattern(tmp, 'repeat');
+      if (pattern) {
+        ctx.save();
+        ctx.translate(offX, offY);
+        ctx.fillStyle = pattern;
+        ctx.fillRect(-offX, -offY, width, height);
+        ctx.restore();
+      }
+    }
+  };
+
   // 大图(>4K)预缩放上限:超出长边时缩放到 4096px,
   // 减少后端推理时 numpy 内存峰值与 base64 传输量。后端推理本身固定 1024x1024,
   // 缩到 4K 不会显著影响 mask 质量,但节省 ~60% 内存与传输。
@@ -1419,6 +1488,7 @@ function App() {
       if (p.outputFormat === 'png' || p.outputFormat === 'webp' || p.outputFormat === 'jpg') setOutputFormat(p.outputFormat);
       if (typeof p.autoCrop === 'boolean') setAutoCrop(p.autoCrop);
       if (typeof p.featherRadius === 'number' && p.featherRadius >= 0 && p.featherRadius <= 10) setFeatherRadius(p.featherRadius);
+      if (p.bgFillMode === 'cover' || p.bgFillMode === 'contain' || p.bgFillMode === 'center' || p.bgFillMode === 'repeat') setBgFillMode(p.bgFillMode);
       if (typeof p.batchPrefix === 'string') setBatchPrefix(p.batchPrefix);
       if (typeof p.batchConcurrency === 'number' && p.batchConcurrency >= 1 && p.batchConcurrency <= 8) setBatchConcurrency(p.batchConcurrency);
     } catch (e) {
@@ -1429,10 +1499,10 @@ function App() {
   useEffect(() => {
     try {
       localStorage.setItem('userPrefs', JSON.stringify({
-        outputFormat, autoCrop, featherRadius, batchPrefix, batchConcurrency,
+        outputFormat, autoCrop, featherRadius, bgFillMode, batchPrefix, batchConcurrency,
       }));
     } catch {}
-  }, [outputFormat, autoCrop, featherRadius, batchPrefix, batchConcurrency]);
+  }, [outputFormat, autoCrop, featherRadius, bgFillMode, batchPrefix, batchConcurrency]);
 
   // 生成 96x96 缩略图(对原始 dataURL 等比缩放居中);失败则返回空串
   const generateThumbnail = (dataUrl: string, size = 96): Promise<string> => {
@@ -2633,32 +2703,11 @@ function App() {
     
     // Draw background
     if (bgImage) {
-      // Draw background image with CSS cover mode
       const bgImg = new Image();
       bgImg.crossOrigin = 'anonymous';
       await new Promise<void>((resolve) => {
         bgImg.onload = () => {
-          // Calculate cover mode dimensions (same as CSS background-size: cover)
-          const imgRatio = bgImg.width / bgImg.height;
-          const canvasRatio = width / height;
-          
-          let drawWidth, drawHeight, offsetX, offsetY;
-          
-          if (imgRatio > canvasRatio) {
-            // Image is wider than canvas (relative to height)
-            drawHeight = height;
-            drawWidth = height * imgRatio;
-            offsetX = (width - drawWidth) / 2;
-            offsetY = 0;
-          } else {
-            // Image is taller than canvas (relative to width)
-            drawWidth = width;
-            drawHeight = width / imgRatio;
-            offsetX = 0;
-            offsetY = (height - drawHeight) / 2;
-          }
-          
-          ctx.drawImage(bgImg, offsetX, offsetY, drawWidth, drawHeight);
+          drawBackgroundImage(ctx, bgImg, width, height, bgFillMode, bgScale, bgOffsetX, bgOffsetY);
           resolve();
         };
         bgImg.onerror = () => resolve();
@@ -2666,7 +2715,7 @@ function App() {
       });
     } else if (bgColor !== 'transparent') {
       // Draw background color
-      ctx.fillStyle = bgColor;
+      ctx.fillStyle = colorWithAlpha(bgColor, bgAlpha);
       ctx.fillRect(0, 0, width, height);
     }
     
@@ -2720,24 +2769,9 @@ function App() {
         
         // Draw background
         if (bgImg) {
-          const imgRatio = bgImg.width / bgImg.height;
-          const canvasRatio = width / height;
-          let drawWidth, drawHeight, offsetX, offsetY;
-          
-          if (imgRatio > canvasRatio) {
-            drawHeight = height;
-            drawWidth = height * imgRatio;
-            offsetX = (width - drawWidth) / 2;
-            offsetY = 0;
-          } else {
-            drawWidth = width;
-            drawHeight = width / imgRatio;
-            offsetX = 0;
-            offsetY = (height - drawHeight) / 2;
-          }
-          ctx.drawImage(bgImg, offsetX, offsetY, drawWidth, drawHeight);
+          drawBackgroundImage(ctx, bgImg, width, height, bgFillMode, bgScale, bgOffsetX, bgOffsetY);
         } else if (bgColor !== 'transparent') {
-          ctx.fillStyle = bgColor;
+          ctx.fillStyle = colorWithAlpha(bgColor, bgAlpha);
           ctx.fillRect(0, 0, width, height);
         }
         
@@ -3703,6 +3737,27 @@ function App() {
                 {showBgPicker && (
                   <div className="bg-picker-dropdown">
                     <div className="bg-picker-section">
+                      <div className="bg-picker-label">快速场景</div>
+                      <div className="bg-scene-presets">
+                        {([
+                          { icon: '📷', name: '证件白底', color: '#ffffff' },
+                          { icon: '🛒', name: '商品浅灰', color: '#f5f5f5' },
+                          { icon: '🎉', name: '节日红', color: '#dc2626' },
+                          { icon: '✨', name: '透明', color: 'transparent' },
+                        ] as const).map(s => (
+                          <button
+                            key={s.name}
+                            className={`bg-scene-btn ${bgColor === s.color && !bgImage ? 'active' : ''}`}
+                            onClick={() => { setBgColor(s.color); setBgImage(null); setBgImageName(null); }}
+                            title={s.color === 'transparent' ? '透明背景' : s.color}
+                          >
+                            <span className="bg-scene-icon">{s.icon}</span>
+                            <span className="bg-scene-name">{s.name}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="bg-picker-section">
                       <div className="bg-picker-label">预设颜色</div>
                       <div className="bg-picker-colors">
                         {([
@@ -3783,21 +3838,114 @@ function App() {
                           </div>
                         </>
                       )}
+                      {/* 不透明度滑块:仅非透明纯色时显示 */}
+                      {bgColor !== 'transparent' && !bgImage && (
+                        <div className="bg-picker-slider-row">
+                          <span className="bg-picker-slider-label">不透明度</span>
+                          <input
+                            type="range"
+                            min={0}
+                            max={100}
+                            step={1}
+                            value={bgAlpha}
+                            onChange={(e) => setBgAlpha(Number(e.target.value))}
+                            className="bg-picker-slider"
+                          />
+                          <span className="bg-picker-slider-value">{bgAlpha}%</span>
+                        </div>
+                      )}
                     </div>
                     <div className="bg-picker-section">
                       <div className="bg-picker-label">背景图片</div>
                       {bgImage ? (
-                        <div className="bg-image-preview">
-                          <img src={bgImage} alt={bgImageName || '背景图'} className="bg-image-thumb" />
-                          <span className="bg-image-name" title={bgImageName || ''}>
-                            {bgImageName || '已选背景图'}
-                          </span>
+                        <>
+                          <div className="bg-image-preview">
+                            <img src={bgImage} alt={bgImageName || '背景图'} className="bg-image-thumb" />
+                            <span className="bg-image-name" title={bgImageName || ''}>
+                              {bgImageName || '已选背景图'}
+                            </span>
+                            <button
+                              className="bg-image-clear"
+                              onClick={() => { setBgImage(null); setBgImageName(null); }}
+                              title="清除背景图"
+                            >×</button>
+                          </div>
+                          <div className="bg-fill-row">
+                            <span className="bg-fill-label">填充方式</span>
+                            <select
+                              className="bg-fill-select"
+                              value={bgFillMode}
+                              onChange={(e) => setBgFillMode(e.target.value as any)}
+                            >
+                              <option value="cover">填充(撑满裁剪)</option>
+                              <option value="contain">适应(留边)</option>
+                              <option value="center">居中原图</option>
+                              <option value="repeat">平铺重复</option>
+                            </select>
+                          </div>
+                          {/* 折叠"位置和大小" — 默认收起,展开后显示缩放/偏移/重置 */}
                           <button
-                            className="bg-image-clear"
-                            onClick={() => { setBgImage(null); setBgImageName(null); }}
-                            title="清除背景图"
-                          >×</button>
-                        </div>
+                            className={`bg-advanced-toggle ${showBgAdvanced ? 'expanded' : ''}`}
+                            onClick={() => setShowBgAdvanced(v => !v)}
+                          >
+                            <span className="bg-advanced-toggle-arrow">▶</span>
+                            位置和大小
+                            {(bgScale !== 100 || bgOffsetX !== 0 || bgOffsetY !== 0) && (
+                              <span style={{ marginLeft: 4, color: 'var(--primary-color)' }}>•</span>
+                            )}
+                          </button>
+                          {showBgAdvanced && (
+                            <>
+                              {(bgFillMode === 'center' || bgFillMode === 'repeat') && (
+                                <div className="bg-picker-slider-row">
+                                  <span className="bg-picker-slider-label">缩放</span>
+                                  <input
+                                    type="range"
+                                    min={10}
+                                    max={300}
+                                    step={5}
+                                    value={bgScale}
+                                    onChange={(e) => setBgScale(Number(e.target.value))}
+                                    className="bg-picker-slider"
+                                  />
+                                  <span className="bg-picker-slider-value">{bgScale}%</span>
+                                </div>
+                              )}
+                              <div className="bg-picker-slider-row">
+                                <span className="bg-picker-slider-label">水平</span>
+                                <input
+                                  type="range"
+                                  min={-50}
+                                  max={50}
+                                  step={1}
+                                  value={bgOffsetX}
+                                  onChange={(e) => setBgOffsetX(Number(e.target.value))}
+                                  className="bg-picker-slider"
+                                />
+                                <span className="bg-picker-slider-value">{bgOffsetX > 0 ? '+' : ''}{bgOffsetX}%</span>
+                              </div>
+                              <div className="bg-picker-slider-row">
+                                <span className="bg-picker-slider-label">垂直</span>
+                                <input
+                                  type="range"
+                                  min={-50}
+                                  max={50}
+                                  step={1}
+                                  value={bgOffsetY}
+                                  onChange={(e) => setBgOffsetY(Number(e.target.value))}
+                                  className="bg-picker-slider"
+                                />
+                                <span className="bg-picker-slider-value">{bgOffsetY > 0 ? '+' : ''}{bgOffsetY}%</span>
+                              </div>
+                              {(bgScale !== 100 || bgOffsetX !== 0 || bgOffsetY !== 0) && (
+                                <button
+                                  className="bg-picker-reset-btn"
+                                  onClick={() => { setBgScale(100); setBgOffsetX(0); setBgOffsetY(0); }}
+                                >重置位置和大小</button>
+                              )}
+                            </>
+                          )}
+                        </>
                       ) : (
                         <button
                           className="btn btn-secondary btn-sm"
@@ -4116,13 +4264,37 @@ function App() {
               <div
                 className="image-container"
                 ref={resultTransformRef}
-                style={{
-                  backgroundColor: bgColor === 'transparent' ? 'transparent' : bgColor,
-                  backgroundImage: bgImage ? `url(${bgImage})` : bgColor === 'transparent' ? 
-                    'linear-gradient(45deg, #ccc 25%, transparent 25%), linear-gradient(-45deg, #ccc 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #ccc 75%), linear-gradient(-45deg, transparent 75%, #ccc 75%)' : 'none',
-                  backgroundSize: bgImage ? 'cover' : '20px 20px',
-                  backgroundPosition: bgImage ? 'center' : '0 0, 0 10px, 10px -10px, -10px 0px'
-                }}
+                style={(() => {
+                  if (bgImage) {
+                    // 背景图:fillMode 决定基础 size,bgScale 在 center/repeat 模式叠加缩放;
+                    // bgOffsetX/Y 始终生效(以 % 偏移,基于 image-container 自身尺寸)
+                    let size: string;
+                    if (bgFillMode === 'cover') size = 'cover';
+                    else if (bgFillMode === 'contain') size = 'contain';
+                    else size = `${bgScale}%`; // center / repeat 用 bgScale 控制
+                    const posX = bgFillMode === 'repeat' ? `${bgOffsetX}px` : `calc(50% + ${bgOffsetX}%)`;
+                    const posY = bgFillMode === 'repeat' ? `${bgOffsetY}px` : `calc(50% + ${bgOffsetY}%)`;
+                    return {
+                      backgroundColor: 'transparent',
+                      backgroundImage: `url(${bgImage})`,
+                      backgroundSize: size,
+                      backgroundRepeat: bgFillMode === 'repeat' ? 'repeat' : 'no-repeat',
+                      backgroundPosition: `${posX} ${posY}`,
+                    };
+                  }
+                  if (bgColor === 'transparent') {
+                    // 透明:显示棋盘格
+                    return {
+                      backgroundColor: 'transparent',
+                      backgroundImage:
+                        'linear-gradient(45deg, #ccc 25%, transparent 25%), linear-gradient(-45deg, #ccc 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #ccc 75%), linear-gradient(-45deg, transparent 75%, #ccc 75%)',
+                      backgroundSize: '20px 20px',
+                      backgroundPosition: '0 0, 0 10px, 10px -10px, -10px 0px',
+                    };
+                  }
+                  // 纯色(支持 alpha)
+                  return { backgroundColor: colorWithAlpha(bgColor, bgAlpha) };
+                })()}
               >
                 {processedImage && isOriginalGif && (
                   <img
