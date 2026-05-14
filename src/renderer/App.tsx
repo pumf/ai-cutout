@@ -118,12 +118,15 @@ function App() {
   const [bgImage, setBgImage] = useState<string | null>(null);
   const [bgImageName, setBgImageName] = useState<string | null>(null);
   const [recentColors, setRecentColors] = useState<string[]>([]);
-  const [bgFillMode, setBgFillMode] = useState<'cover' | 'contain' | 'center' | 'repeat'>('cover');
+  const [bgFillMode, setBgFillMode] = useState<'cover' | 'contain' | 'center' | 'repeat' | 'custom'>('cover');
   const [bgAlpha, setBgAlpha] = useState<number>(100); // 0-100 纯色背景不透明度
   const [bgScale, setBgScale] = useState<number>(100); // 50-300 背景图缩放
   const [bgOffsetX, setBgOffsetX] = useState<number>(0); // -50..50 X 偏移(%)
   const [bgOffsetY, setBgOffsetY] = useState<number>(0); // -50..50 Y 偏移(%)
   const [showBgAdvanced, setShowBgAdvanced] = useState(false);
+  const [customScenes, setCustomScenes] = useState<Array<{ name: string; color: string }>>([]);
+  const [addingScene, setAddingScene] = useState(false);
+  const [newSceneName, setNewSceneName] = useState('');
   const [showBgPicker, setShowBgPicker] = useState(false);
 
   // Brush slider tooltip state
@@ -177,9 +180,27 @@ function App() {
   const origFramesListRef = useRef<HTMLDivElement>(null);
   const procFramesListRef = useRef<HTMLDivElement>(null);
 
+  // 同步 bg 状态到 ref,让 native wheel/mousedown 监听器能即时读取
+  const bgStateRef = useRef({ bgImage: null as string | null, bgScale: 100, bgOffsetX: 0, bgOffsetY: 0 });
+  useEffect(() => {
+    bgStateRef.current = { bgImage, bgScale, bgOffsetX, bgOffsetY };
+  }, [bgImage, bgScale, bgOffsetX, bgOffsetY]);
+
   // Handle zoom with mouse position as anchor point - keep the point visually stationary
   const handleZoom = useCallback((e: WheelEvent, panelRef: React.RefObject<HTMLDivElement>) => {
     e.preventDefault();
+    // Shift + 滚轮:若有背景图,改为缩放背景图(主图缩放是高频默认行为,不动)
+    // 注意:macOS 触控板 Shift+滑动会把 deltaY 映射到 deltaX,
+    // 必须同时考虑两者,否则只能单向缩放
+    if (e.shiftKey && bgStateRef.current.bgImage) {
+      const dir = Math.abs(e.deltaY) > Math.abs(e.deltaX) ? e.deltaY : e.deltaX;
+      if (dir === 0) return;
+      setBgScale(prev => {
+        const step = dir > 0 ? -5 : 5;
+        return Math.max(10, Math.min(300, prev + step));
+      });
+      return;
+    }
     const delta = e.deltaY > 0 ? 0.9 : 1.1;
     const newScale = Math.max(0.01, scaleRef.current * delta);
     
@@ -1260,7 +1281,7 @@ function App() {
     bgImg: HTMLImageElement,
     width: number,
     height: number,
-    mode: 'cover' | 'contain' | 'center' | 'repeat',
+    mode: 'cover' | 'contain' | 'center' | 'repeat' | 'custom',
     scale: number = 100,
     offsetXPct: number = 0,
     offsetYPct: number = 0
@@ -1280,7 +1301,9 @@ function App() {
       if (imgRatio > canvasRatio) { dw = width; dh = width / imgRatio; ox = 0; oy = (height - dh) / 2; }
       else { dh = height; dw = height * imgRatio; ox = (width - dw) / 2; oy = 0; }
       ctx.drawImage(bgImg, ox + offX, oy + offY, dw, dh);
-    } else if (mode === 'center') {
+    } else if (mode === 'center' || mode === 'custom') {
+      // custom 与 center 算法一致(原图尺寸×scale,居中后再加 offset)
+      // 差别只在 UI 语义:custom 暗示用户主动调整,center 暗示居中预设
       const s = scale / 100;
       const dw = bgImg.width * s;
       const dh = bgImg.height * s;
@@ -1458,13 +1481,52 @@ function App() {
     }
   }, []);
 
+  // 自定义场景:启动读 + 增删
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('customScenes');
+      if (raw) {
+        const arr = JSON.parse(raw);
+        if (Array.isArray(arr)) setCustomScenes(arr.slice(0, 8));
+      }
+    } catch {}
+  }, []);
+
+  const persistCustomScenes = (scenes: Array<{ name: string; color: string }>) => {
+    try { localStorage.setItem('customScenes', JSON.stringify(scenes)); } catch {}
+  };
+
+  const handleAddCustomScene = () => {
+    const name = newSceneName.trim();
+    if (!name) return;
+    if (bgColor === 'transparent') {
+      showToast('请先选个颜色再保存场景', 'error');
+      return;
+    }
+    setCustomScenes(prev => {
+      const next = [...prev.filter(s => s.color.toLowerCase() !== bgColor.toLowerCase()), { name, color: bgColor }].slice(0, 8);
+      persistCustomScenes(next);
+      return next;
+    });
+    setAddingScene(false);
+    setNewSceneName('');
+  };
+
+  const handleRemoveCustomScene = (color: string) => {
+    setCustomScenes(prev => {
+      const next = prev.filter(s => s.color !== color);
+      persistCustomScenes(next);
+      return next;
+    });
+  };
+
   // 最近使用的自定义颜色:启动读 + 自定义颜色变更时追加
   useEffect(() => {
     try {
       const raw = localStorage.getItem('recentColors');
       if (raw) {
         const arr = JSON.parse(raw);
-        if (Array.isArray(arr)) setRecentColors(arr.filter(c => typeof c === 'string').slice(0, 6));
+        if (Array.isArray(arr)) setRecentColors(arr.filter(c => typeof c === 'string').slice(0, 5));
       }
     } catch {}
   }, []);
@@ -1472,7 +1534,7 @@ function App() {
   const addRecentColor = (color: string) => {
     if (!color || color === 'transparent') return;
     setRecentColors(prev => {
-      const next = [color, ...prev.filter(c => c.toLowerCase() !== color.toLowerCase())].slice(0, 6);
+      const next = [color, ...prev.filter(c => c.toLowerCase() !== color.toLowerCase())].slice(0, 5);
       try { localStorage.setItem('recentColors', JSON.stringify(next)); } catch {}
       return next;
     });
@@ -1488,7 +1550,7 @@ function App() {
       if (p.outputFormat === 'png' || p.outputFormat === 'webp' || p.outputFormat === 'jpg') setOutputFormat(p.outputFormat);
       if (typeof p.autoCrop === 'boolean') setAutoCrop(p.autoCrop);
       if (typeof p.featherRadius === 'number' && p.featherRadius >= 0 && p.featherRadius <= 10) setFeatherRadius(p.featherRadius);
-      if (p.bgFillMode === 'cover' || p.bgFillMode === 'contain' || p.bgFillMode === 'center' || p.bgFillMode === 'repeat') setBgFillMode(p.bgFillMode);
+      if (p.bgFillMode === 'cover' || p.bgFillMode === 'contain' || p.bgFillMode === 'center' || p.bgFillMode === 'repeat' || p.bgFillMode === 'custom') setBgFillMode(p.bgFillMode);
       if (typeof p.batchPrefix === 'string') setBatchPrefix(p.batchPrefix);
       if (typeof p.batchConcurrency === 'number' && p.batchConcurrency >= 1 && p.batchConcurrency <= 8) setBatchConcurrency(p.batchConcurrency);
     } catch (e) {
@@ -2025,8 +2087,24 @@ function App() {
     };
   }, [originalImage, processedImage]);
 
+  // 背景图直接拖动:Shift + drag 调整 bgOffset
+  const [isBgDragging, setIsBgDragging] = useState(false);
+  const bgDragStartRef = useRef({ mouseX: 0, mouseY: 0, offX: 0, offY: 0, panelW: 1, panelH: 1 });
+
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     if (!originalImage && !processedImage) return;
+    // Shift + 鼠标按下:若有背景图,进入"拖动背景"模式(主图拖动是高频默认行为)
+    if (e.shiftKey && bgStateRef.current.bgImage) {
+      const panel = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
+      bgDragStartRef.current = {
+        mouseX: e.clientX, mouseY: e.clientY,
+        offX: bgStateRef.current.bgOffsetX, offY: bgStateRef.current.bgOffsetY,
+        panelW: panel.width || 1, panelH: panel.height || 1,
+      };
+      setIsBgDragging(true);
+      e.preventDefault();
+      return;
+    }
     setIsDragging(true);
     startPosRef.current = { x: e.clientX, y: e.clientY };
     startTranslateRef.current = { x: translateXRef.current, y: translateYRef.current };
@@ -2036,7 +2114,7 @@ function App() {
     setIsDragging(false);
   }, []);
 
-  // 主预览拖动:用 window 级监听,即使鼠标拖出 panel 边界也能继续到松手再结束
+  // 主预览拖动:window 级监听,即使鼠标拖出 panel 边界也能继续到松手再结束
   useEffect(() => {
     if (!isDragging) return;
     const onMove = (e: MouseEvent) => {
@@ -2054,6 +2132,26 @@ function App() {
       window.removeEventListener('mouseup', onUp);
     };
   }, [isDragging]);
+
+  // 背景图拖动:window 级监听;鼠标位移按 panel 尺寸百分比映射到 bgOffset
+  useEffect(() => {
+    if (!isBgDragging) return;
+    const onMove = (e: MouseEvent) => {
+      const s = bgDragStartRef.current;
+      const dxPct = ((e.clientX - s.mouseX) / s.panelW) * 100;
+      const dyPct = ((e.clientY - s.mouseY) / s.panelH) * 100;
+      // 取整避免滑块显示小数
+      setBgOffsetX(Math.max(-50, Math.min(50, Math.round(s.offX + dxPct))));
+      setBgOffsetY(Math.max(-50, Math.min(50, Math.round(s.offY + dyPct))));
+    };
+    const onUp = () => setIsBgDragging(false);
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+  }, [isBgDragging]);
 
   const handleImageLoad = () => {
     // Image loaded callback - ensure transform is applied after image loads
@@ -3755,6 +3853,55 @@ function App() {
                             <span className="bg-scene-name">{s.name}</span>
                           </button>
                         ))}
+                        {customScenes.map(s => (
+                          <button
+                            key={s.color}
+                            className={`bg-scene-btn custom ${bgColor === s.color && !bgImage ? 'active' : ''}`}
+                            onClick={() => { setBgColor(s.color); setBgImage(null); setBgImageName(null); }}
+                            title={s.color}
+                          >
+                            <span
+                              className="bg-scene-icon"
+                              style={{ background: s.color, width: 14, height: 14, borderRadius: 3, border: '1px solid rgba(0,0,0,0.1)' }}
+                            />
+                            <span className="bg-scene-name">{s.name}</span>
+                            <span
+                              className="bg-scene-remove"
+                              onClick={(e) => { e.stopPropagation(); handleRemoveCustomScene(s.color); }}
+                              title="删除场景"
+                            >×</span>
+                          </button>
+                        ))}
+                        {customScenes.length < 8 && (
+                          addingScene ? (
+                            <div className="bg-scene-add-inline">
+                              <input
+                                type="text"
+                                value={newSceneName}
+                                onChange={(e) => setNewSceneName(e.target.value)}
+                                placeholder="场景名称"
+                                maxLength={10}
+                                autoFocus
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') handleAddCustomScene();
+                                  else if (e.key === 'Escape') { setAddingScene(false); setNewSceneName(''); }
+                                }}
+                                onBlur={() => { if (!newSceneName.trim()) setAddingScene(false); }}
+                              />
+                              <button onClick={handleAddCustomScene} title="保存">✓</button>
+                            </div>
+                          ) : (
+                            <button
+                              className="bg-scene-btn add"
+                              onClick={() => setAddingScene(true)}
+                              title={bgColor === 'transparent' ? '请先选颜色,再保存场景' : `保存当前颜色 ${bgColor.toUpperCase()} 为场景`}
+                              disabled={bgColor === 'transparent'}
+                            >
+                              <span className="bg-scene-icon">+</span>
+                              <span className="bg-scene-name">保存当前色</span>
+                            </button>
+                          )
+                        )}
                       </div>
                     </div>
                     <div className="bg-picker-section">
@@ -3766,9 +3913,11 @@ function App() {
                           { value: '#000000', label: '黑色' },
                           { value: '#9ca3af', label: '灰色' },
                           { value: '#ef4444', label: '红色' },
-                          { value: '#3b82f6', label: '蓝色' },
-                          { value: '#10b981', label: '绿色' },
+                          { value: '#f97316', label: '橙色' },
                           { value: '#f59e0b', label: '黄色' },
+                          { value: '#10b981', label: '绿色' },
+                          { value: '#06b6d4', label: '青色' },
+                          { value: '#3b82f6', label: '蓝色' },
                           { value: '#8b5cf6', label: '紫色' },
                           { value: '#ec4899', label: '粉色' },
                         ] as const).map(preset => (
@@ -3870,17 +4019,26 @@ function App() {
                               title="清除背景图"
                             >×</button>
                           </div>
+                          <div className="bg-shortcut-hint">
+                            💡 Shift + 拖动 调背景位置 / Shift + 滚轮 调背景大小
+                          </div>
                           <div className="bg-fill-row">
                             <span className="bg-fill-label">填充方式</span>
                             <select
                               className="bg-fill-select"
                               value={bgFillMode}
-                              onChange={(e) => setBgFillMode(e.target.value as any)}
+                              onChange={(e) => {
+                                const v = e.target.value as any;
+                                setBgFillMode(v);
+                                // 切到 custom 时自动展开"位置和大小",方便立即调整
+                                if (v === 'custom') setShowBgAdvanced(true);
+                              }}
                             >
                               <option value="cover">填充(撑满裁剪)</option>
                               <option value="contain">适应(留边)</option>
                               <option value="center">居中原图</option>
                               <option value="repeat">平铺重复</option>
+                              <option value="custom">自定义(自由调整)</option>
                             </select>
                           </div>
                           {/* 折叠"位置和大小" — 默认收起,展开后显示缩放/偏移/重置 */}
@@ -3896,7 +4054,7 @@ function App() {
                           </button>
                           {showBgAdvanced && (
                             <>
-                              {(bgFillMode === 'center' || bgFillMode === 'repeat') && (
+                              {(bgFillMode === 'center' || bgFillMode === 'repeat' || bgFillMode === 'custom') && (
                                 <div className="bg-picker-slider-row">
                                   <span className="bg-picker-slider-label">缩放</span>
                                   <input
@@ -4271,7 +4429,7 @@ function App() {
                     let size: string;
                     if (bgFillMode === 'cover') size = 'cover';
                     else if (bgFillMode === 'contain') size = 'contain';
-                    else size = `${bgScale}%`; // center / repeat 用 bgScale 控制
+                    else size = `${bgScale}%`; // center / repeat / custom 用 bgScale 控制
                     const posX = bgFillMode === 'repeat' ? `${bgOffsetX}px` : `calc(50% + ${bgOffsetX}%)`;
                     const posY = bgFillMode === 'repeat' ? `${bgOffsetY}px` : `calc(50% + ${bgOffsetY}%)`;
                     return {
