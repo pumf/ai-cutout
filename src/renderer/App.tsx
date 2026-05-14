@@ -1293,6 +1293,30 @@ function App() {
     }
   }, []);
 
+  // 用户偏好:导出格式 / 智能裁切 / 批量前缀 / 批量并发 — 启动读 + 变更写
+  // 注意:不持久化 bgColor(每次启动期望默认透明,避免上次的颜色残留干扰)
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('userPrefs');
+      if (!raw) return;
+      const p = JSON.parse(raw);
+      if (p.outputFormat === 'png' || p.outputFormat === 'webp' || p.outputFormat === 'jpg') setOutputFormat(p.outputFormat);
+      if (typeof p.autoCrop === 'boolean') setAutoCrop(p.autoCrop);
+      if (typeof p.batchPrefix === 'string') setBatchPrefix(p.batchPrefix);
+      if (typeof p.batchConcurrency === 'number' && p.batchConcurrency >= 1 && p.batchConcurrency <= 8) setBatchConcurrency(p.batchConcurrency);
+    } catch (e) {
+      console.warn('Failed to load user prefs:', e);
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('userPrefs', JSON.stringify({
+        outputFormat, autoCrop, batchPrefix, batchConcurrency,
+      }));
+    } catch {}
+  }, [outputFormat, autoCrop, batchPrefix, batchConcurrency]);
+
   // 生成 96x96 缩略图(对原始 dataURL 等比缩放居中);失败则返回空串
   const generateThumbnail = (dataUrl: string, size = 96): Promise<string> => {
     return new Promise((resolve) => {
@@ -1642,22 +1666,31 @@ function App() {
       
       for (const task of successTasks) {
         try {
-          const ext = task.fileName.toLowerCase().endsWith('.gif') ? 'gif' : 'png';
+          const isGifTask = task.fileName.toLowerCase().endsWith('.gif');
+          const ext = isGifTask ? 'gif' : formatExt(outputFormat);
           const baseName = task.fileName.replace(/\.[^/.]+$/, '');
           const outputName = `${batchPrefix}${baseName}.${ext}`;
           const outputPath = `${outputDir}/${outputName}`;
-          
+
+          // 把 blob URL 还原成 data URL(单图导出与批量导出共用同一套格式/裁切处理)
+          let dataUrl: string;
           if (task.processedImage!.startsWith('blob:')) {
             const response = await fetch(task.processedImage!);
             const blob = await response.blob();
             const arrayBuffer = await blob.arrayBuffer();
             const base64 = arrayBufferToBase64(arrayBuffer);
-            const dataUrl = `data:image/${ext};base64,${base64}`;
-            await saveImageToPath(dataUrl, outputPath);
+            dataUrl = `data:image/${isGifTask ? 'gif' : 'png'};base64,${base64}`;
           } else {
-            await saveImageToPath(task.processedImage!, outputPath);
+            dataUrl = task.processedImage!;
           }
-          
+
+          // 非 GIF 才按用户的 outputFormat / autoCrop 应用
+          if (!isGifTask) {
+            if (autoCrop) dataUrl = await cropToContent(dataUrl);
+            if (outputFormat !== 'png') dataUrl = await convertImageFormat(dataUrl, outputFormat);
+          }
+
+          await saveImageToPath(dataUrl, outputPath);
           exported++;
         } catch (err) {
           console.error('Export failed for task:', task.id, err);
@@ -1749,14 +1782,41 @@ function App() {
     const onDrop = (e: DragEvent) => {
       e.preventDefault();
       setDragActive(false);
-      const file = e.dataTransfer?.files[0];
-      if (file && file.type.startsWith('image/')) {
+      const allFiles = Array.from(e.dataTransfer?.files || []);
+      const imageFiles = allFiles.filter(f => f.type.startsWith('image/'));
+      if (imageFiles.length === 0) return;
+
+      if (imageFiles.length === 1) {
+        // 单文件:走单图流程
+        const file = imageFiles[0];
         if (originalImage || processedImage) {
           setPendingFile(file);
           setShowPasteConfirm(true);
         } else {
           loadFileImage(file);
         }
+      } else {
+        // 多文件:自动加入批量并打开批量对话框(批量不支持 GIF,过滤掉)
+        const validFiles = imageFiles.filter(f => {
+          const isGif = f.type === 'image/gif' || f.name.toLowerCase().endsWith('.gif');
+          if (isGif) showToast(`已跳过 GIF: ${f.name}`, 'info');
+          return !isGif;
+        });
+        if (validFiles.length === 0) {
+          showToast('拖入的图片均为 GIF 格式(批量不支持)', 'error');
+          return;
+        }
+        const newTasks: BatchTask[] = validFiles.map(f => ({
+          id: Math.random().toString(36).substr(2, 9),
+          file: f,
+          fileName: f.name,
+          status: 'pending',
+          progress: 0,
+          retryCount: 0,
+        }));
+        setBatchTasks(prev => [...prev, ...newTasks]);
+        setShowBatchDialog(true);
+        showToast(`已添加 ${validFiles.length} 张到批量`, 'success');
       }
     };
     document.addEventListener('dragover', onDragOver);
