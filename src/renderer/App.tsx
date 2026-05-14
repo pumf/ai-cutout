@@ -44,6 +44,7 @@ function App() {
   const [batchConcurrency, setBatchConcurrency] = useState<number>(2);
   const [outputFormat, setOutputFormat] = useState<'png' | 'webp' | 'jpg'>('png');
   const [autoCrop, setAutoCrop] = useState<boolean>(true);
+  const [featherRadius, setFeatherRadius] = useState<number>(0);
   const [showExportDialog, setShowExportDialog] = useState(false);
   const [recentFiles, setRecentFiles] = useState<Array<{ path: string; name: string; thumbnail: string; timestamp: number }>>([]);
   const abortBatchRef = useRef<boolean>(false);
@@ -1228,6 +1229,62 @@ function App() {
 
   const formatExt = (f: 'png' | 'webp' | 'jpg') => f === 'jpg' ? 'jpg' : f;
 
+  // 边缘羽化:仅对 alpha 通道应用 GaussianBlur,保留 RGB 锐利不"晕染"
+  // 步骤:提取 alpha → 灰度 canvas → ctx.filter blur → 把模糊后的灰度值写回 alpha
+  const featherEdge = (dataUrl: string, radius: number): Promise<string> => {
+    if (radius <= 0) return Promise.resolve(dataUrl);
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const w = img.naturalWidth;
+          const h = img.naturalHeight;
+          // 1) 原图 imageData
+          const srcCv = document.createElement('canvas');
+          srcCv.width = w; srcCv.height = h;
+          const sctx = srcCv.getContext('2d')!;
+          sctx.drawImage(img, 0, 0);
+          const original = sctx.getImageData(0, 0, w, h);
+          // 2) 灰度 mask(把 alpha 提到 R/G/B,alpha 设 255)
+          const maskCv = document.createElement('canvas');
+          maskCv.width = w; maskCv.height = h;
+          const mctx = maskCv.getContext('2d')!;
+          const maskImg = mctx.createImageData(w, h);
+          for (let i = 0; i < original.data.length; i += 4) {
+            const a = original.data[i + 3];
+            maskImg.data[i] = a;
+            maskImg.data[i + 1] = a;
+            maskImg.data[i + 2] = a;
+            maskImg.data[i + 3] = 255;
+          }
+          mctx.putImageData(maskImg, 0, 0);
+          // 3) 模糊 mask
+          const blurCv = document.createElement('canvas');
+          blurCv.width = w; blurCv.height = h;
+          const bctx = blurCv.getContext('2d')!;
+          bctx.filter = `blur(${radius}px)`;
+          bctx.drawImage(maskCv, 0, 0);
+          const blurred = bctx.getImageData(0, 0, w, h);
+          // 4) 把模糊后的灰度值写回 alpha
+          const outCv = document.createElement('canvas');
+          outCv.width = w; outCv.height = h;
+          const octx = outCv.getContext('2d')!;
+          const result = octx.createImageData(w, h);
+          for (let i = 0; i < result.data.length; i += 4) {
+            result.data[i] = original.data[i];
+            result.data[i + 1] = original.data[i + 1];
+            result.data[i + 2] = original.data[i + 2];
+            result.data[i + 3] = blurred.data[i];
+          }
+          octx.putImageData(result, 0, 0);
+          resolve(outCv.toDataURL('image/png'));
+        } catch (e) { reject(e); }
+      };
+      img.onerror = () => reject(new Error('图片解码失败'));
+      img.src = dataUrl;
+    });
+  };
+
   // 智能裁切:扫描 alpha 通道找非透明区域 bbox,裁紧后返回新 PNG dataURL
   // alpha 阈值取 10 是为了忽略肉眼几乎不可见的边缘羽化噪点
   const cropToContent = (dataUrl: string): Promise<string> => {
@@ -1301,6 +1358,7 @@ function App() {
       const p = JSON.parse(raw);
       if (p.outputFormat === 'png' || p.outputFormat === 'webp' || p.outputFormat === 'jpg') setOutputFormat(p.outputFormat);
       if (typeof p.autoCrop === 'boolean') setAutoCrop(p.autoCrop);
+      if (typeof p.featherRadius === 'number' && p.featherRadius >= 0 && p.featherRadius <= 10) setFeatherRadius(p.featherRadius);
       if (typeof p.batchPrefix === 'string') setBatchPrefix(p.batchPrefix);
       if (typeof p.batchConcurrency === 'number' && p.batchConcurrency >= 1 && p.batchConcurrency <= 8) setBatchConcurrency(p.batchConcurrency);
     } catch (e) {
@@ -1311,10 +1369,10 @@ function App() {
   useEffect(() => {
     try {
       localStorage.setItem('userPrefs', JSON.stringify({
-        outputFormat, autoCrop, batchPrefix, batchConcurrency,
+        outputFormat, autoCrop, featherRadius, batchPrefix, batchConcurrency,
       }));
     } catch {}
-  }, [outputFormat, autoCrop, batchPrefix, batchConcurrency]);
+  }, [outputFormat, autoCrop, featherRadius, batchPrefix, batchConcurrency]);
 
   // 生成 96x96 缩略图(对原始 dataURL 等比缩放居中);失败则返回空串
   const generateThumbnail = (dataUrl: string, size = 96): Promise<string> => {
@@ -1683,8 +1741,9 @@ function App() {
             dataUrl = task.processedImage!;
           }
 
-          // 非 GIF 才按用户的 outputFormat / autoCrop 应用
+          // 非 GIF 才按用户的 outputFormat / autoCrop / featherRadius 应用
           if (!isGifTask) {
+            if (featherRadius > 0) dataUrl = await featherEdge(dataUrl, featherRadius);
             if (autoCrop) dataUrl = await cropToContent(dataUrl);
             if (outputFormat !== 'png') dataUrl = await convertImageFormat(dataUrl, outputFormat);
           }
@@ -1748,8 +1807,10 @@ function App() {
           imageData = `data:image/gif;base64,${base64}`;
         }
       } else {
-        // 普通图片:可选先智能裁切去透明边,再按用户选的格式转换
+        // 普通图片:羽化 → 智能裁切 → 格式转换(顺序重要:先羽化再裁切,
+        // 避免羽化后的半透明边缘被裁掉)
         defaultName = `removed_bg.${formatExt(outputFormat)}`;
+        if (featherRadius > 0) imageData = await featherEdge(imageData, featherRadius);
         if (autoCrop) imageData = await cropToContent(imageData);
         if (outputFormat !== 'png') imageData = await convertImageFormat(imageData, outputFormat);
       }
@@ -2696,12 +2757,11 @@ function App() {
     const composedCanvas = await composeImageWithBackground();
     if (!composedCanvas) return;
 
-    // 智能裁切:如果用户开启 + 当前是透明背景,先裁掉透明边;
-    // 若有底色/底图,合成后无透明像素,裁切不会触发(cropToContent 返回原图)
+    // 羽化(透明背景才有半透明 alpha 可以羽化;有底色时 mask 全 255 不变)
+    // → 智能裁切 → 格式转换
     let dataUrl = composedCanvas.toDataURL('image/png');
+    if (featherRadius > 0) dataUrl = await featherEdge(dataUrl, featherRadius);
     if (autoCrop) dataUrl = await cropToContent(dataUrl);
-
-    // 按输出格式转换(jpg 内部会铺白底,webp/png 保留透明)
     if (outputFormat !== 'png') dataUrl = await convertImageFormat(dataUrl, outputFormat);
 
     const result = await saveImage(dataUrl, `removed_bg_edited.${formatExt(outputFormat)}`);
@@ -3579,61 +3639,28 @@ function App() {
                     <div className="bg-picker-section">
                       <div className="bg-picker-label">预设颜色</div>
                       <div className="bg-picker-colors">
-                        <div
-                          className={`bg-picker-color ${bgColor === 'transparent' && !bgImage ? 'active' : ''}`}
-                          onClick={() => { setBgColor('transparent'); setBgImage(null); showToast('背景已设为透明', 'success'); }}
-                          title="透明"
-                        >
-                          <div className="bg-color-transparent" />
-                        </div>
-                        <div
-                          className={`bg-picker-color ${bgColor === '#ffffff' && !bgImage ? 'active' : ''}`}
-                          onClick={() => { setBgColor('#ffffff'); setBgImage(null); showToast('背景已设为白色', 'success'); }}
-                          style={{ backgroundColor: '#ffffff' }}
-                          title="白色"
-                        />
-                        <div
-                          className={`bg-picker-color ${bgColor === '#000000' && !bgImage ? 'active' : ''}`}
-                          onClick={() => { setBgColor('#000000'); setBgImage(null); showToast('背景已设为黑色', 'success'); }}
-                          style={{ backgroundColor: '#000000' }}
-                          title="黑色"
-                        />
-                        <div
-                          className={`bg-picker-color ${bgColor === '#ef4444' && !bgImage ? 'active' : ''}`}
-                          onClick={() => { setBgColor('#ef4444'); setBgImage(null); showToast('背景已设为红色', 'success'); }}
-                          style={{ backgroundColor: '#ef4444' }}
-                          title="红色"
-                        />
-                        <div
-                          className={`bg-picker-color ${bgColor === '#3b82f6' && !bgImage ? 'active' : ''}`}
-                          onClick={() => { setBgColor('#3b82f6'); setBgImage(null); showToast('背景已设为蓝色', 'success'); }}
-                          style={{ backgroundColor: '#3b82f6' }}
-                          title="蓝色"
-                        />
-                        <div
-                          className={`bg-picker-color ${bgColor === '#10b981' && !bgImage ? 'active' : ''}`}
-                          onClick={() => { setBgColor('#10b981'); setBgImage(null); showToast('背景已设为绿色', 'success'); }}
-                          style={{ backgroundColor: '#10b981' }}
-                          title="绿色"
-                        />
-                        <div
-                          className={`bg-picker-color ${bgColor === '#f59e0b' && !bgImage ? 'active' : ''}`}
-                          onClick={() => { setBgColor('#f59e0b'); setBgImage(null); showToast('背景已设为黄色', 'success'); }}
-                          style={{ backgroundColor: '#f59e0b' }}
-                          title="黄色"
-                        />
-                        <div
-                          className={`bg-picker-color ${bgColor === '#8b5cf6' && !bgImage ? 'active' : ''}`}
-                          onClick={() => { setBgColor('#8b5cf6'); setBgImage(null); showToast('背景已设为紫色', 'success'); }}
-                          style={{ backgroundColor: '#8b5cf6' }}
-                          title="紫色"
-                        />
-                        <div
-                          className={`bg-picker-color ${bgColor === '#ec4899' && !bgImage ? 'active' : ''}`}
-                          onClick={() => { setBgColor('#ec4899'); setBgImage(null); showToast('背景已设为粉色', 'success'); }}
-                          style={{ backgroundColor: '#ec4899' }}
-                          title="粉色"
-                        />
+                        {([
+                          { value: 'transparent', label: '透明' },
+                          { value: '#ffffff', label: '白色' },
+                          { value: '#000000', label: '黑色' },
+                          { value: '#9ca3af', label: '灰色' },
+                          { value: '#ef4444', label: '红色' },
+                          { value: '#3b82f6', label: '蓝色' },
+                          { value: '#10b981', label: '绿色' },
+                          { value: '#f59e0b', label: '黄色' },
+                          { value: '#8b5cf6', label: '紫色' },
+                          { value: '#ec4899', label: '粉色' },
+                        ] as const).map(preset => (
+                          <div
+                            key={preset.value}
+                            className={`bg-picker-color ${bgColor === preset.value && !bgImage ? 'active' : ''}`}
+                            onClick={() => { setBgColor(preset.value); setBgImage(null); showToast(`背景已设为${preset.label}`, 'success'); }}
+                            style={preset.value !== 'transparent' ? { backgroundColor: preset.value } : undefined}
+                            title={preset.label}
+                          >
+                            {preset.value === 'transparent' && <div className="bg-color-transparent" />}
+                          </div>
+                        ))}
                       </div>
                     </div>
                     <div className="bg-picker-section">
@@ -4192,7 +4219,7 @@ function App() {
                   <option value="jpg">JPG — 最小,不支持透明(以白色填充)</option>
                 </select>
               </div>
-              <div style={{ marginBottom: 20 }}>
+              <div style={{ marginBottom: 14 }}>
                 <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: isOriginalGif ? 'not-allowed' : 'pointer', opacity: isOriginalGif ? 0.5 : 1 }}>
                   <input
                     type="checkbox"
@@ -4201,6 +4228,25 @@ function App() {
                     disabled={isOriginalGif}
                   />
                   <span style={{ fontSize: 14 }}>智能裁切 — 自动去除透明边,文件更小</span>
+                </label>
+              </div>
+              <div style={{ marginBottom: 20, opacity: isOriginalGif ? 0.5 : 1 }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 14 }}>
+                  <span style={{ minWidth: 90, color: 'var(--text-secondary)', fontSize: 13 }}>边缘羽化</span>
+                  <input
+                    type="range"
+                    min={0}
+                    max={10}
+                    step={1}
+                    value={featherRadius}
+                    onChange={(e) => setFeatherRadius(Number(e.target.value))}
+                    disabled={isOriginalGif}
+                    style={{ flex: 1 }}
+                    title="0 = 关闭,数值越大边缘越柔和"
+                  />
+                  <span style={{ minWidth: 40, textAlign: 'right', fontSize: 12, color: 'var(--text-secondary)' }}>
+                    {featherRadius === 0 ? '关' : `${featherRadius}px`}
+                  </span>
                 </label>
               </div>
               <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
