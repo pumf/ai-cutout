@@ -1441,6 +1441,7 @@ function App() {
       if (!result || result.canceled) return;
       
       const outputDir = result.filePaths[0];
+      setBatchOutputDir(outputDir);
       let exported = 0;
       
       for (const task of successTasks) {
@@ -3085,13 +3086,27 @@ function App() {
                     </button>
                   ) : (
                     <>
-                      <button 
-                        className="btn btn-secondary" 
+                      <button
+                        className="btn btn-secondary"
                         onClick={handleBatchExport}
                         disabled={batchTasks.filter(t => t.status === 'success').length === 0}
                       >
                         <span className="btn-icon">💾</span>
                         导出全部
+                      </button>
+                      <button
+                        className="btn btn-secondary"
+                        onClick={async () => {
+                          const res = await (window as any).electronAPI.openFolder(batchOutputDir);
+                          if (res && !res.success) {
+                            showToast(`无法打开目录: ${res.error || '未知错误'}`, 'error');
+                          }
+                        }}
+                        disabled={!batchOutputDir}
+                        title={batchOutputDir ? `打开 ${batchOutputDir}` : '导出后可用'}
+                      >
+                        <span className="btn-icon">📂</span>
+                        打开目录
                       </button>
                       <button 
                         className="btn btn-primary" 
@@ -3111,12 +3126,20 @@ function App() {
       )}
 
       {/* Batch Preview Modal */}
-      {showBatchPreview && selectedBatchTask && (
-        <BatchPreviewModal 
-          task={selectedBatchTask}
-          onClose={() => setShowBatchPreview(false)}
-        />
-      )}
+      {showBatchPreview && selectedBatchTask && (() => {
+        const idx = batchTasks.findIndex(t => t.id === selectedBatchTask.id);
+        const hasPrev = idx > 0;
+        const hasNext = idx >= 0 && idx < batchTasks.length - 1;
+        return (
+          <BatchPreviewModal
+            task={selectedBatchTask}
+            onClose={() => setShowBatchPreview(false)}
+            onPrev={hasPrev ? () => setSelectedBatchTask(batchTasks[idx - 1]) : undefined}
+            onNext={hasNext ? () => setSelectedBatchTask(batchTasks[idx + 1]) : undefined}
+            indexInfo={idx >= 0 ? { current: idx + 1, total: batchTasks.length } : undefined}
+          />
+        );
+      })()}
 
       <main className="main">
         <div className="toolbar">
@@ -3804,9 +3827,12 @@ interface BatchPreviewModalProps {
     processedImage?: string;
   };
   onClose: () => void;
+  onPrev?: () => void;
+  onNext?: () => void;
+  indexInfo?: { current: number; total: number };
 }
 
-function BatchPreviewModal({ task, onClose }: BatchPreviewModalProps) {
+function BatchPreviewModal({ task, onClose, onPrev, onNext, indexInfo }: BatchPreviewModalProps) {
   const [originalUrl, setOriginalUrl] = useState<string | null>(null);
 
   // 左右共享同一套 transform:scale + translate(像素)。
@@ -3894,6 +3920,23 @@ function BatchPreviewModal({ task, onClose }: BatchPreviewModalProps) {
     setTranslate({ x: 0, y: 0 });
   };
 
+  // 切换任务时自动重置缩放/位置,避免上一张的 transform 残留到下一张
+  useEffect(() => {
+    handleReset();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [task.id]);
+
+  // 键盘导航:← 上一张,→ 下一张,Esc 关闭
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowLeft' && onPrev) { e.preventDefault(); onPrev(); }
+      else if (e.key === 'ArrowRight' && onNext) { e.preventDefault(); onNext(); }
+      else if (e.key === 'Escape') { e.preventDefault(); onClose(); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onPrev, onNext, onClose]);
+
   const imgStyle: React.CSSProperties = {
     transform: `translate(${translate.x}px, ${translate.y}px) scale(${scale})`,
     transformOrigin: '50% 50%',
@@ -3906,9 +3949,28 @@ function BatchPreviewModal({ task, onClose }: BatchPreviewModalProps) {
     <div className="modal-overlay modal-overlay-blocking">
       <div className="modal modal-preview resizable-modal">
         <div className="modal-header">
-          <h3>图片预览 - {task.fileName}</h3>
-          <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-            <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>缩放: {Math.round(scale * 100)}%</span>
+          <h3>
+            图片预览 - {task.fileName}
+            {indexInfo && (
+              <span style={{ marginLeft: 8, fontSize: 13, color: 'var(--text-secondary)', fontWeight: 'normal' }}>
+                ({indexInfo.current} / {indexInfo.total})
+              </span>
+            )}
+          </h3>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <button
+              onClick={onPrev}
+              disabled={!onPrev}
+              style={{ padding: '4px 10px', fontSize: 13, border: '1px solid var(--border-color)', background: 'transparent', borderRadius: 6, cursor: onPrev ? 'pointer' : 'not-allowed', opacity: onPrev ? 1 : 0.4 }}
+              title="上一张 (←)"
+            >◀ 上一张</button>
+            <button
+              onClick={onNext}
+              disabled={!onNext}
+              style={{ padding: '4px 10px', fontSize: 13, border: '1px solid var(--border-color)', background: 'transparent', borderRadius: 6, cursor: onNext ? 'pointer' : 'not-allowed', opacity: onNext ? 1 : 0.4 }}
+              title="下一张 (→)"
+            >下一张 ▶</button>
+            <span style={{ fontSize: 12, color: 'var(--text-secondary)', marginLeft: 8 }}>缩放: {Math.round(scale * 100)}%</span>
             <button
               onClick={handleReset}
               style={{ padding: '4px 10px', fontSize: 12, border: '1px solid var(--border-color)', background: 'transparent', borderRadius: 6, cursor: 'pointer' }}

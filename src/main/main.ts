@@ -798,6 +798,16 @@ ipcMain.handle('open-external', async (_event: any, url: string) => {
   await shell.openExternal(url);
 });
 
+// Open a local folder in the system file manager
+ipcMain.handle('open-folder', async (_event: any, dir: string) => {
+  const { shell } = require('electron');
+  if (!dir || !fs.existsSync(dir)) {
+    return { success: false, error: 'Folder does not exist' };
+  }
+  const errMsg = await shell.openPath(dir);
+  return errMsg ? { success: false, error: errMsg } : { success: true };
+});
+
 // Version comparison helper
 function compareVersions(v1: string, v2: string): number {
   const parts1 = v1.split('.').map(Number);
