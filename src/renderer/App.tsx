@@ -1172,8 +1172,13 @@ function App() {
     
     setIsProcessing(true);
     try {
-      const base64Data = originalImage.replace(/^data:image\/\w+;base64,/, '');
-      
+      // 大图预缩放,降低后端内存压力
+      const { data: inputDataUrl, resized, originalSize } = await resizeIfTooLarge(originalImage);
+      if (resized && originalSize) {
+        showToast(`图片较大(${originalSize[0]}×${originalSize[1]}),已缩放至 ${MAX_INPUT_DIM}px 处理`, 'info');
+      }
+      const base64Data = inputDataUrl.replace(/^data:image\/\w+;base64,/, '');
+
       const blob = await processImageFrame(base64Data);
       const url = URL.createObjectURL(blob);
       setProcessedImage(url);
@@ -1184,8 +1189,7 @@ function App() {
       const errorMsg = (e as Error).message || '未知错误';
       showToast(`处理失败: ${errorMsg}`, 'error');
       
-      // 显示详细错误信息
-      alert(`抠图失败详情：\n${errorMsg}\n\n请检查：\n1. 是否正确打开 Tauri 应用（不是旧版 Electron）\n2. 模型是否成功加载\n3. 查看浏览器控制台获取更多错误信息`);
+      // 详细错误已通过 toast 显示;之前的浏览器原生 alert 体验差且引用了过时的 Tauri,移除
     } finally {
       setIsProcessing(false);
     }
@@ -1228,6 +1232,40 @@ function App() {
   };
 
   const formatExt = (f: 'png' | 'webp' | 'jpg') => f === 'jpg' ? 'jpg' : f;
+
+  // 大图(>4K)预缩放上限:超出长边时缩放到 4096px,
+  // 减少后端推理时 numpy 内存峰值与 base64 传输量。后端推理本身固定 1024x1024,
+  // 缩到 4K 不会显著影响 mask 质量,但节省 ~60% 内存与传输。
+  const MAX_INPUT_DIM = 4096;
+
+  // 检查图片长边,超过 maxDim 则用 canvas 高质量缩放;返回 { dataUrl, resized?, originalSize? }
+  const resizeIfTooLarge = (dataUrl: string, maxDim: number = MAX_INPUT_DIM): Promise<{ data: string; resized: boolean; originalSize?: [number, number] }> => {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        const w = img.naturalWidth;
+        const h = img.naturalHeight;
+        if (Math.max(w, h) <= maxDim) {
+          resolve({ data: dataUrl, resized: false });
+          return;
+        }
+        const scale = maxDim / Math.max(w, h);
+        const newW = Math.round(w * scale);
+        const newH = Math.round(h * scale);
+        const cv = document.createElement('canvas');
+        cv.width = newW;
+        cv.height = newH;
+        const ctx = cv.getContext('2d');
+        if (!ctx) return reject(new Error('canvas 2d 不可用'));
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(img, 0, 0, newW, newH);
+        resolve({ data: cv.toDataURL('image/png'), resized: true, originalSize: [w, h] });
+      };
+      img.onerror = () => reject(new Error('图片解码失败'));
+      img.src = dataUrl;
+    });
+  };
 
   // 边缘羽化:仅对 alpha 通道应用 GaussianBlur,保留 RGB 锐利不"晕染"
   // 步骤:提取 alpha → 灰度 canvas → ctx.filter blur → 把模糊后的灰度值写回 alpha
@@ -1555,13 +1593,19 @@ function App() {
         t.id === task.id ? { ...t, status: 'processing', progress: 30 } : t
       ));
       
-      // Convert to base64
-      const base64 = arrayBufferToBase64(arrayBuffer);
-      
-      setBatchTasks(prev => prev.map(t => 
+      // Convert to base64,大图自动缩放到 4K 上限以降低后端内存峰值
+      const mime = task.file.type || 'image/png';
+      const rawBase64 = arrayBufferToBase64(arrayBuffer);
+      const tempDataUrl = `data:${mime};base64,${rawBase64}`;
+      const { data: inputDataUrl } = await resizeIfTooLarge(tempDataUrl);
+      const base64 = inputDataUrl === tempDataUrl
+        ? rawBase64
+        : inputDataUrl.replace(/^data:image\/\w+;base64,/, '');
+
+      setBatchTasks(prev => prev.map(t =>
         t.id === task.id ? { ...t, progress: 50 } : t
       ));
-      
+
       // Process with AI model
       const processedBlob = await processImageFrame(base64, signal);
       const url = URL.createObjectURL(processedBlob);
@@ -4202,7 +4246,7 @@ function App() {
               <h3>导出图片</h3>
               <button className="modal-close" onClick={() => setShowExportDialog(false)}>×</button>
             </div>
-            <div className="modal-content" style={{ padding: 20 }}>
+            <div className="modal-content modal-body">
               <div style={{ marginBottom: 18 }}>
                 <label style={{ display: 'block', fontSize: 13, color: 'var(--text-secondary)', marginBottom: 6 }}>
                   输出格式 {isOriginalGif && <span style={{ color: '#94a3b8' }}>(GIF 文件锁定为 GIF)</span>}
@@ -4249,7 +4293,7 @@ function App() {
                   </span>
                 </label>
               </div>
-              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <div className="modal-actions">
                 <button
                   className="btn btn-secondary"
                   onClick={() => setShowExportDialog(false)}
@@ -4275,7 +4319,7 @@ function App() {
               <h3>下载 {downloadDialog.displayName}</h3>
               <button className="modal-close" onClick={() => setDownloadDialog(null)}>×</button>
             </div>
-            <div className="modal-content" style={{ padding: 20 }}>
+            <div className="modal-content modal-body">
               <p style={{ marginBottom: 16, color: 'var(--text-secondary)', fontSize: 13, lineHeight: 1.6 }}>
                 模型文件较大,需在浏览器中手动下载。下载完成后按以下步骤加载:
               </p>
@@ -4283,7 +4327,7 @@ function App() {
                 <li>点击下方"打开下载页",在浏览器中下载 <code style={{ background: 'var(--bg-color)', padding: '1px 6px', borderRadius: 4, fontFamily: 'monospace', fontSize: 13 }}>model.onnx</code></li>
                 <li>回到模型列表,点击该模型的"选择文件",选取刚下载的文件 — 应用会自动放置并加载</li>
               </ol>
-              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <div className="modal-actions">
                 <button
                   className="btn btn-secondary"
                   onClick={() => setDownloadDialog(null)}

@@ -273,6 +273,16 @@ body {
   background: rgba(239, 68, 68, 0.9);
 }
 
+/* 通用 modal 内容区与底部按钮栏 */
+.modal-body {
+  padding: 20px;
+}
+.modal-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
 /* toggle 按钮激活态(用于智能裁切等开关式工具栏按钮) */
 .btn.btn-toggle-active {
   background: rgba(59, 130, 246, 0.12);
