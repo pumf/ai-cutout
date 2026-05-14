@@ -284,16 +284,23 @@ async function startPythonBackend(): Promise<void> {
     const spawnArgs = [backendPath];
     console.log('Spawning Python:', pythonCmd, spawnArgs.join(' '));
 
+    // 后端日志写到可写位置:packaged 时 Resources/ 只读,必须用 userData
+    const backendLogDir = app.isPackaged
+      ? path.join(app.getPath('userData'), 'logs')
+      : path.join(appPath, 'logs');
+    try { fs.mkdirSync(backendLogDir, { recursive: true }); } catch {}
+
     pythonProcess = spawn(pythonCmd, spawnArgs, {
       stdio: 'pipe',
       shell: false, // Don't use shell to avoid escaping issues
       cwd: app.isPackaged
         ? path.join(process.resourcesPath, 'backend')
         : path.join(appPath, 'backend'),
-      env: { 
-        ...process.env, 
+      env: {
+        ...process.env,
         PYTHONPATH: process.resourcesPath,
-        PYTHONUNBUFFERED: '1' // Ensure Python output is not buffered
+        PYTHONUNBUFFERED: '1', // Ensure Python output is not buffered
+        AI_CUTOUT_LOG_DIR: backendLogDir, // 后端读此 env 决定日志路径
       }
     });
 

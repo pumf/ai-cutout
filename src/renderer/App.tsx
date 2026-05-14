@@ -745,9 +745,8 @@ function App() {
         throw new Error('GIF 文件不包含任何帧');
       }
       
-      // Calculate concurrency based on CPU cores
-      const cpuCores = navigator.hardwareConcurrency || 4;
-      const concurrency = Math.min(Math.max(2, Math.floor(cpuCores)), 6);
+      // 与批量处理共用同一个并发设置(批量对话框可配置;默认 2)
+      const concurrency = Math.max(1, Math.min(8, batchConcurrency));
       
       showToast(`正在处理 ${numFrames} 帧 GIF...`, 'info');
       

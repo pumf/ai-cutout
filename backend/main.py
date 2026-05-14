@@ -23,8 +23,11 @@ from fastapi.responses import FileResponse
 import uvicorn
 
 # Setup logging to both console and file
-log_dir = Path(__file__).parent.parent / 'logs'
-log_dir.mkdir(exist_ok=True)
+# 优先用 Electron 主进程通过 env 传入的可写路径(packaged 时 Resources/ 只读);
+# 否则回退到项目内 logs(dev 模式)
+_env_log_dir = os.environ.get('AI_CUTOUT_LOG_DIR')
+log_dir = Path(_env_log_dir) if _env_log_dir else (Path(__file__).parent.parent / 'logs')
+log_dir.mkdir(parents=True, exist_ok=True)
 log_file = log_dir / 'backend.log'
 
 logging.basicConfig(
