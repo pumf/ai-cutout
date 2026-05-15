@@ -112,6 +112,10 @@ function App() {
   
   // Original panel collapse state
   const [isOriginalPanelCollapsed, setIsOriginalPanelCollapsed] = useState(false);
+  // null = 默认 1fr 1fr 等分;否则左侧 panel 百分比(20-80)
+  const [leftPanelPct, setLeftPanelPct] = useState<number | null>(null);
+  const [isSplitterDragging, setIsSplitterDragging] = useState(false);
+  const [copyJustDone, setCopyJustDone] = useState(false);
   
   // Background settings
   const [bgColor, setBgColor] = useState<string>('transparent');
@@ -1480,6 +1484,52 @@ function App() {
       console.warn('Failed to load recent files:', e);
     }
   }, []);
+
+  // 双 panel 分隔条比例:启动读取 + 拖动持久化
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('leftPanelPct');
+      if (raw !== null) {
+        const n = Number(raw);
+        if (!isNaN(n) && n >= 20 && n <= 80) setLeftPanelPct(n);
+      }
+    } catch {}
+  }, []);
+
+  const handleSplitterDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const workspaceEl = e.currentTarget.parentElement;
+    if (!workspaceEl) return;
+    setIsSplitterDragging(true);
+    const rect = workspaceEl.getBoundingClientRect();
+    const onMove = (ev: MouseEvent) => {
+      const pct = ((ev.clientX - rect.left) / rect.width) * 100;
+      setLeftPanelPct(Math.max(20, Math.min(80, Math.round(pct))));
+    };
+    const onUp = () => {
+      setIsSplitterDragging(false);
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      // 持久化最后的比例
+      try {
+        const final = ((window.event as MouseEvent)?.clientX || 0);
+        // 实际从 state 读更稳,这里直接用最后一次 setState 已写入
+      } catch {}
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }, []);
+
+  // 比例变化时持久化(独立于 drag,任何时机改都保存)
+  useEffect(() => {
+    if (leftPanelPct === null) return;
+    try { localStorage.setItem('leftPanelPct', String(leftPanelPct)); } catch {}
+  }, [leftPanelPct]);
+
+  const handleSplitterDoubleClick = () => {
+    setLeftPanelPct(null);
+    try { localStorage.removeItem('leftPanelPct'); } catch {}
+  };
 
   // 自定义场景:启动读 + 增删
   useEffect(() => {
@@ -3028,6 +3078,8 @@ function App() {
       // Use Electron backend to copy to clipboard
       await copyImageToClipboard(base64Data);
       showToast('已复制到剪贴板', 'success');
+      setCopyJustDone(true);
+      setTimeout(() => setCopyJustDone(false), 1500);
     } catch (err) {
       console.error('Failed to copy to clipboard:', err);
       showToast('复制失败', 'error');
@@ -3732,14 +3784,14 @@ function App() {
             <button
               className="btn btn-primary"
               onClick={handleSelectImage}
-              title="选择本地图片文件 (支持 PNG, JPG, WebP)"
+              title="选择本地图片文件 (⌘O,支持 PNG / JPG / WebP / GIF)"
             >
               <span className="btn-icon">📁</span>
               <span className="btn-text">选择</span>
             </button>
             {isGifProcessing ? (
               <button
-                className="btn btn-error"
+                className="btn btn-cta btn-cancel-gif"
                 onClick={cancelGifProcessing}
                 title="取消 GIF 处理"
               >
@@ -3747,15 +3799,19 @@ function App() {
                 <span className="btn-text">
                   GIF 抠图 {gifProgress.current}/{gifProgress.total}
                 </span>
+                <span
+                  className="btn-progress"
+                  style={{ width: `${gifProgress.total ? (gifProgress.current / gifProgress.total) * 100 : 0}%` }}
+                />
               </button>
             ) : (
               <button
-                className="btn btn-success"
+                className={`btn btn-cta ${isProcessing ? 'is-processing' : ''}`}
                 onClick={handleProcess}
                 disabled={!originalImage || isProcessing}
-                title={!originalImage ? "请先选择图片" : isProcessing ? "正在处理中..." : "使用AI模型去除背景"}
+                title={!originalImage ? "请先选择图片" : isProcessing ? "正在处理中..." : "使用 AI 模型去除背景 (⌘P)"}
               >
-                <span className="btn-icon">{isProcessing ? '⏳' : '✨'}</span>
+                <span className="btn-icon">{isProcessing ? <span className="btn-cta-spinner" /> : '✨'}</span>
                 <span className="btn-text">{isProcessing ? '处理中' : '抠图'}</span>
               </button>
             )}
@@ -3763,13 +3819,13 @@ function App() {
               className="btn btn-secondary"
               onClick={() => processedImage && setShowExportDialog(true)}
               disabled={!processedImage}
-              title={!processedImage ? "请先处理图片" : "导出为图片"}
+              title={!processedImage ? "请先处理图片" : "导出为图片 (⌘S)"}
             >
               <span className="btn-icon">💾</span>
               <span className="btn-text">导出</span>
             </button>
             <button
-              className="btn btn-secondary"
+              className={`btn btn-secondary ${copyJustDone ? 'btn-copy-success' : ''}`}
               onClick={() => {
                 if (isOriginalGif) {
                   showToast('GIF 格式不支持复制到剪贴板，请使用导出功能', 'info');
@@ -3778,10 +3834,10 @@ function App() {
                 }
               }}
               disabled={!processedImage}
-              title={!processedImage ? "请先处理图片" : isOriginalGif ? "GIF 格式不支持复制，请使用导出" : "复制到剪贴板"}
+              title={!processedImage ? "请先处理图片" : isOriginalGif ? "GIF 格式不支持复制，请使用导出" : "复制到剪贴板 (⌘C)"}
             >
-              <span className="btn-icon">📋</span>
-              <span className="btn-text">复制</span>
+              <span className="btn-icon">{copyJustDone ? '✓' : '📋'}</span>
+              <span className="btn-text">{copyJustDone ? '已复制' : '复制'}</span>
             </button>
           </div>
 
@@ -3801,12 +3857,12 @@ function App() {
           <div className="toolbar-group">
             <div ref={zoomControlRef} className="zoom-control">
               <button
-                className="btn btn-icon-only"
+                className="btn btn-zoom"
                 onClick={() => setShowZoomDropdown(!showZoomDropdown)}
-                title="缩放"
+                title="缩放主图(滚轮也可)"
               >
-                <span className="btn-icon">🔍</span>
-                <span className="btn-badge">{Math.round(scale * 100)}%</span>
+                <span className="btn-text">{Math.round(scale * 100)}%</span>
+                <span className="btn-zoom-arrow">▾</span>
               </button>
               {showZoomDropdown && (
                 <div className="zoom-dropdown">
@@ -4153,22 +4209,27 @@ function App() {
                 >
                   <span className="btn-icon">✏️</span>
                 </button>
-                <button
-                  className="btn btn-icon-only"
-                  onClick={handleUndo}
-                  disabled={historyIndex <= 0}
-                  title={historyIndex <= 0 ? "无法撤回" : `撤回 (${historyIndex})  ⌘Z`}
-                >
-                  <span className="btn-icon">↩️</span>
-                </button>
-                <button
-                  className="btn btn-icon-only"
-                  onClick={handleRedo}
-                  disabled={historyIndex >= maskHistory.length - 1}
-                  title={historyIndex >= maskHistory.length - 1 ? "无法重做" : `重做 (${maskHistory.length - 1 - historyIndex})  ⇧⌘Z`}
-                >
-                  <span className="btn-icon">↪️</span>
-                </button>
+                {/* 撤销/重做仅在擦除/修补编辑模式下显示,普通查看时不占空间 */}
+                {editMode !== 'none' && (
+                  <>
+                    <button
+                      className="btn btn-icon-only"
+                      onClick={handleUndo}
+                      disabled={historyIndex <= 0}
+                      title={historyIndex <= 0 ? "无法撤回" : `撤回 (${historyIndex})  ⌘Z`}
+                    >
+                      <span className="btn-icon">↩️</span>
+                    </button>
+                    <button
+                      className="btn btn-icon-only"
+                      onClick={handleRedo}
+                      disabled={historyIndex >= maskHistory.length - 1}
+                      title={historyIndex >= maskHistory.length - 1 ? "无法重做" : `重做 (${maskHistory.length - 1 - historyIndex})  ⇧⌘Z`}
+                    >
+                      <span className="btn-icon">↪️</span>
+                    </button>
+                  </>
+                )}
               </div>
 
               {editMode !== 'none' && (
@@ -4215,7 +4276,17 @@ function App() {
 
         </div>
 
-        <div className={`workspace ${isOriginalPanelCollapsed ? 'original-collapsed' : ''}`}>
+        <div
+          className={`workspace ${isOriginalPanelCollapsed ? 'original-collapsed' : ''} ${isSplitterDragging ? 'splitter-dragging' : ''}`}
+          style={{
+            // 折叠时 2 列(无 splitter);展开时 3 列(可拖动)
+            gridTemplateColumns: isOriginalPanelCollapsed
+              ? 'auto 1fr'
+              : leftPanelPct !== null
+                ? `${leftPanelPct}% 8px ${100 - leftPanelPct}%`
+                : '1fr 8px 1fr',
+          }}
+        >
           <div className={`panel ${isOriginalPanelCollapsed ? 'collapsed' : ''}`}>
             <div className="panel-header">
               <span>原图</span>
@@ -4331,6 +4402,20 @@ function App() {
                   <div className="drop-zone-hint">
                     支持 PNG、JPG、WEBP、GIF 格式
                   </div>
+                  <div className="drop-zone-tips" onClick={e => e.stopPropagation()}>
+                    <div className="drop-zone-tip">
+                      <span className="drop-zone-tip-icon">⚡</span>
+                      <span>单图约 1-2 秒,大图自动缩放至 4K</span>
+                    </div>
+                    <div className="drop-zone-tip">
+                      <span className="drop-zone-tip-icon">📂</span>
+                      <span>拖入多张图片自动进入批量模式</span>
+                    </div>
+                    <div className="drop-zone-tip">
+                      <span className="drop-zone-tip-icon">⌘</span>
+                      <span><kbd>⌘O</kbd> 选图 / <kbd>⌘V</kbd> 粘贴 / <kbd>?</kbd> 全部快捷键</span>
+                    </div>
+                  </div>
                   {recentFiles.length > 0 && (
                     <div className="recent-files" onClick={e => e.stopPropagation()}>
                       <div className="recent-files-title">最近打开</div>
@@ -4366,6 +4451,16 @@ function App() {
             </div>
             )}
           </div>
+
+          {/* 可拖动分隔条:调整两侧 panel 比例;双击重置;原图折叠时隐藏 */}
+          {!isOriginalPanelCollapsed && (
+            <div
+              className="workspace-splitter"
+              onMouseDown={handleSplitterDown}
+              onDoubleClick={handleSplitterDoubleClick}
+              title="拖动调整比例,双击重置"
+            />
+          )}
 
           <div className="panel">
             <div className="panel-header">

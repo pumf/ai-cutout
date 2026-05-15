@@ -483,7 +483,7 @@ body {
 .toolbar {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   flex-wrap: wrap;
   position: relative;
   z-index: 10;
@@ -492,8 +492,8 @@ body {
 .toolbar-group {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
+  gap: 6px;
+  padding: 5px 8px;
   background: linear-gradient(135deg, rgba(255, 255, 255, 0.9) 0%, rgba(248, 250, 252, 0.9) 100%);
   border-radius: var(--radius-lg);
   border: 1px solid rgba(203, 213, 225, 0.5);
@@ -523,6 +523,148 @@ body {
 .toolbar-tools {
   display: flex;
   gap: 4px;
+}
+
+/* 主 CTA(抠图)按钮 — 视觉权重最高 */
+.btn.btn-cta {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  color: white;
+  border: none;
+  font-weight: 600;
+  font-size: 14px;
+  padding: 8px 18px;
+  min-width: 120px;
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.35);
+  position: relative;
+  overflow: hidden;
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+.btn.btn-cta:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(16, 185, 129, 0.45);
+  background: linear-gradient(135deg, #34d399 0%, #10b981 100%);
+}
+.btn.btn-cta:active:not(:disabled) {
+  transform: translateY(0);
+}
+.btn.btn-cta:disabled {
+  background: linear-gradient(135deg, #d1d5db 0%, #9ca3af 100%);
+  box-shadow: none;
+  cursor: not-allowed;
+}
+.btn.btn-cta.is-processing {
+  background: linear-gradient(135deg, #34d399 0%, #10b981 100%);
+  opacity: 0.9;
+}
+
+/* CTA 内的 spinner(处理中) */
+.btn-cta-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.4);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: cta-spin 0.6s linear infinite;
+}
+@keyframes cta-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* GIF 取消按钮:红色 CTA + 底部进度条 */
+.btn.btn-cancel-gif {
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.35);
+  min-width: 160px;
+}
+.btn.btn-cancel-gif:hover:not(:disabled) {
+  box-shadow: 0 6px 16px rgba(239, 68, 68, 0.45);
+}
+.btn-progress {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.55);
+  transition: width 0.2s ease-out;
+  pointer-events: none;
+}
+
+/* 空状态(drop-zone)的提示卡片 */
+.drop-zone-tips {
+  margin-top: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  max-width: 360px;
+}
+.drop-zone-tip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.6);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.drop-zone-tip-icon {
+  font-size: 14px;
+  flex-shrink: 0;
+}
+.drop-zone-tip kbd {
+  font-family: 'SF Mono', Menlo, monospace;
+  font-size: 11px;
+  padding: 1px 5px;
+  background: var(--surface-color, white);
+  border: 1px solid var(--border-color);
+  border-radius: 3px;
+  color: var(--text-primary);
+}
+
+/* 缩放按钮:无单独 🔍 icon,只显示百分比 + 下拉箭头 */
+.btn.btn-zoom {
+  min-width: 60px;
+  padding: 6px 10px;
+  font-variant-numeric: tabular-nums;
+}
+.btn-zoom-arrow {
+  font-size: 10px;
+  opacity: 0.6;
+  margin-left: 2px;
+}
+
+/* 响应式工具栏:窄屏隐藏按钮文字,只留 icon(主 CTA 例外保留文字) */
+@media (max-width: 1100px) {
+  .toolbar .btn .btn-text {
+    display: none;
+  }
+  .toolbar .btn:not(.btn-cta):not(.batch-btn) {
+    padding: 6px 10px;
+    min-width: auto;
+  }
+  /* 主 CTA 保留文字(高识别度),仍隐藏 kbd */
+  .toolbar .btn.btn-cta .btn-text {
+    display: inline;
+  }
+  /* 批量按钮也保留文字(橙色 + 关键功能) */
+  .toolbar .batch-btn .btn-text {
+    display: inline;
+  }
+  /* 缩放按钮仍显示百分比 */
+  .toolbar .btn-zoom .btn-text {
+    display: inline;
+  }
+}
+
+/* 复制成功瞬时绿色反馈 */
+.btn.btn-copy-success {
+  background: rgba(16, 185, 129, 0.15) !important;
+  border-color: rgba(16, 185, 129, 0.5) !important;
+  color: #059669 !important;
+  transition: background 0.2s, color 0.2s;
 }
 
 .btn {
@@ -744,14 +886,44 @@ body {
 .workspace {
   flex: 1;
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 20px;
+  /* 3 列:左 panel / 分隔条 / 右 panel */
+  grid-template-columns: 1fr 8px 1fr;
+  gap: 0;
   min-height: 0;
-  transition: grid-template-columns 0.3s ease;
+  transition: grid-template-columns 0.25s ease;
 }
 
-.workspace.original-collapsed {
-  grid-template-columns: auto 1fr;
+/* 拖动期间禁用 transition,避免延迟感 */
+.workspace.splitter-dragging {
+  transition: none;
+  cursor: col-resize;
+  user-select: none;
+}
+
+/* original-collapsed 状态由 JSX inline style 控制 grid-template-columns
+   (折叠 → 2 列;展开 → 3 列含 splitter)*/
+
+/* 分隔条:细线 + hover/active 高亮,col-resize 光标 */
+.workspace-splitter {
+  cursor: col-resize;
+  background: transparent;
+  margin: 0 6px; /* 视觉间隔靠 margin,而非 grid gap */
+  position: relative;
+  z-index: 5;
+  transition: background 0.15s;
+}
+.workspace-splitter::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  margin: 20px -4px; /* 中部加粗一些,易抓取 */
+}
+.workspace-splitter:hover,
+.workspace.splitter-dragging .workspace-splitter {
+  background: rgba(79, 70, 229, 0.25);
+}
+.workspace.original-collapsed .workspace-splitter {
+  display: none;
 }
 
 /* Panel toggle button */
