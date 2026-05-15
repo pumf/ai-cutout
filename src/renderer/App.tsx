@@ -3,6 +3,7 @@ import './App.css';
 import { GifReader, GifWriter } from 'omggif';
 import { listFixedModels, loadFixedModel, loadCustomModel, processImageWithModel, selectModel, openExternalUrl, saveImage, selectImage, loadImageFromPath, copyImageToClipboard, checkForUpdates, getBackendPort, selectMultipleImages, selectFolder, saveImageToPath } from '../api';
 import { TitleBar } from './components/TitleBar';
+import { Icon } from './components/Icon';
 
 // 声明 vite 注入的全局变量
 declare const __APP_VERSION__: string;
@@ -2253,19 +2254,27 @@ function App() {
           maskCtx.fillRect(0, 0, width, height);
         }
 
-        // Load original image
-        const originalImg = new Image();
-        originalImg.crossOrigin = 'anonymous';
-        originalImg.onload = () => {
-          const originalCtx = originalCanvas.getContext('2d', { willReadFrequently: true });
-          if (originalCtx) {
-            originalCtx.clearRect(0, 0, width, height);
-            originalCtx.drawImage(originalImg, 0, 0);
+        // Load original image — 用 fetch + createImageBitmap 替代 new Image()
+        // 后者对超大 dataURL / blob URL 可能 onload 不触发;前者更稳健
+        (async () => {
+          try {
+            const response = await fetch(originalImage);
+            const blob = await response.blob();
+            const bitmap = await createImageBitmap(blob);
+            const originalCtx = originalCanvas.getContext('2d', { willReadFrequently: true });
+            if (originalCtx) {
+              originalCtx.clearRect(0, 0, width, height);
+              originalCtx.imageSmoothingEnabled = true;
+              originalCtx.imageSmoothingQuality = 'high';
+              originalCtx.drawImage(bitmap, 0, 0, width, height);
+            }
+            bitmap.close();
+          } catch (e) {
+            console.error('[restore-cache] load failed', e);
+            showToast('原图缓存加载失败,修补功能可能不可用', 'error');
           }
-          // Initial render
           applyMaskToOutput();
-        };
-        originalImg.src = originalImage;
+        })();
 
         // Reset history
         setMaskHistory([]);
@@ -2652,6 +2661,137 @@ function App() {
     }
   };
 
+  // 软笔刷擦除核心:
+  // 1) 仅在 stroke 局部矩形(brushSize + 边距)创建小 offscreen canvas
+  // 2) 在 offscreen 上画 lineCap=round 单 stroke,filter blur(0.6px) 软化边缘
+  //    GPU 在 alpha 上做抗锯齿,边缘像素 alpha 平滑过渡 → 放大无锯齿
+  // 3) drawImage offscreen → 主画布 with destination-out 一次性擦除
+  // 优于"多 arc fill 叠加":单 path,无 alpha 颗粒堆积,无毛刺
+  const eraseWithSmoothMask = (
+    outputCtx: CanvasRenderingContext2D,
+    outputCanvas: HTMLCanvasElement,
+    fromX: number, fromY: number,
+    toX: number, toY: number,
+    size: number
+  ) => {
+    const halfWidth = size / 2;
+    // bounding box + 留 margin 防 blur 截断
+    const margin = Math.ceil(halfWidth + 2);
+    const x1 = Math.floor(Math.min(fromX, toX) - margin);
+    const y1 = Math.floor(Math.min(fromY, toY) - margin);
+    const x2 = Math.ceil(Math.max(fromX, toX) + margin);
+    const y2 = Math.ceil(Math.max(fromY, toY) + margin);
+    const bx = Math.max(0, x1);
+    const by = Math.max(0, y1);
+    const bw = Math.min(outputCanvas.width, x2) - bx;
+    const bh = Math.min(outputCanvas.height, y2) - by;
+    if (bw <= 0 || bh <= 0) return;
+
+    const off = document.createElement('canvas');
+    off.width = bw;
+    off.height = bh;
+    const octx = off.getContext('2d');
+    if (!octx) return;
+    octx.translate(-bx, -by);
+    octx.lineCap = 'round';
+    octx.lineJoin = 'round';
+    octx.lineWidth = size;
+    octx.strokeStyle = 'black';
+    // 微 blur 0.6px:边缘 alpha 平滑过渡,放大无锯齿,几乎不扩展实际范围
+    octx.filter = 'blur(0.6px)';
+    octx.beginPath();
+    octx.moveTo(fromX, fromY);
+    octx.lineTo(fromX === toX && fromY === toY ? toX + 0.01 : toX, toY);
+    octx.stroke();
+
+    outputCtx.save();
+    outputCtx.globalCompositeOperation = 'destination-out';
+    outputCtx.drawImage(off, bx, by);
+    outputCtx.restore();
+  };
+
+  // 修补软笔刷:像素级判断 — 对 bbox 内每个像素计算到线段的距离,
+  // 在胶囊半径内则直接用 originalCanvas 对应像素覆盖 outputCanvas
+  // 边缘 1px 内做 alpha 软化避免锯齿
+  const restoreWithSmoothMask = (
+    outputCtx: CanvasRenderingContext2D,
+    outputCanvas: HTMLCanvasElement,
+    originalCanvas: HTMLCanvasElement,
+    fromX: number, fromY: number,
+    toX: number, toY: number,
+    size: number
+  ) => {
+    const half = size / 2;
+    const originalCtx = originalCanvas.getContext('2d', { willReadFrequently: true });
+    if (!originalCtx) return;
+
+    // bbox(向外 +1 留软边缘空间)
+    const x1 = Math.max(0, Math.floor(Math.min(fromX, toX) - half - 1));
+    const y1 = Math.max(0, Math.floor(Math.min(fromY, toY) - half - 1));
+    const x2 = Math.min(outputCanvas.width, Math.ceil(Math.max(fromX, toX) + half + 1));
+    const y2 = Math.min(outputCanvas.height, Math.ceil(Math.max(fromY, toY) + half + 1));
+    const bw = x2 - x1;
+    const bh = y2 - y1;
+    if (bw <= 0 || bh <= 0) return;
+
+    const original = originalCtx.getImageData(x1, y1, bw, bh);
+    const output = outputCtx.getImageData(x1, y1, bw, bh);
+    const od = original.data;
+    const out = output.data;
+
+    const dx = toX - fromX;
+    const dy = toY - fromY;
+    const lenSq = dx * dx + dy * dy;
+    const innerR = Math.max(0, half - 1);
+    const innerRSq = innerR * innerR;
+    const outerRSq = half * half;
+
+    for (let py = 0; py < bh; py++) {
+      const wy = py + y1;
+      for (let px = 0; px < bw; px++) {
+        const wx = px + x1;
+        // 计算 (wx, wy) 到线段 from-to 的距离的平方
+        let distSq: number;
+        if (lenSq < 0.25) {
+          const ex = wx - fromX, ey = wy - fromY;
+          distSq = ex * ex + ey * ey;
+        } else {
+          // 投影 t 范围 [0,1]
+          let t = ((wx - fromX) * dx + (wy - fromY) * dy) / lenSq;
+          if (t < 0) t = 0; else if (t > 1) t = 1;
+          const pjx = fromX + t * dx;
+          const pjy = fromY + t * dy;
+          const ex = wx - pjx, ey = wy - pjy;
+          distSq = ex * ex + ey * ey;
+        }
+        if (distSq > outerRSq) continue;
+        const i = (py * bw + px) * 4;
+        if (distSq <= innerRSq) {
+          // 完全在内圈,直接覆盖
+          out[i] = od[i];
+          out[i + 1] = od[i + 1];
+          out[i + 2] = od[i + 2];
+          out[i + 3] = od[i + 3];
+        } else {
+          // 边缘 1px 软化:alpha 线性衰减,避免锯齿
+          const dist = Math.sqrt(distSq);
+          const k = half - dist; // 0..1
+          const oldA = out[i + 3];
+          const newA = od[i + 3] * k;
+          // 取大者,避免反复涂抹时 alpha 反复升降
+          if (newA > oldA) {
+            out[i] = od[i];
+            out[i + 1] = od[i + 1];
+            out[i + 2] = od[i + 2];
+            out[i + 3] = newA;
+          }
+        }
+      }
+    }
+
+    outputCtx.putImageData(output, x1, y1);
+  };
+
   // Drawing functions
   const handleDrawStart = (e: React.MouseEvent) => {
     if (editMode === 'none' || !maskCanvasRef.current || !outputCanvasRef.current) return;
@@ -2732,28 +2872,13 @@ function App() {
     const radius = brushSize / 2;
     
     if (editMode === 'erase') {
-      // Erase mode: use destination-out to create transparent hole
-      outputCtx.save();
-      const gradient = outputCtx.createRadialGradient(x, y, 0, x, y, radius);
-      gradient.addColorStop(0, 'rgba(0, 0, 0, 1)');
-      gradient.addColorStop(0.85, 'rgba(0, 0, 0, 1)');
-      gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
-      outputCtx.fillStyle = gradient;
-      outputCtx.globalCompositeOperation = 'destination-out';
-      outputCtx.beginPath();
-      outputCtx.arc(x, y, radius, 0, Math.PI * 2);
-      outputCtx.fill();
-      outputCtx.restore();
+      // 业界软笔刷标准实现:局部 offscreen canvas + 微 blur,
+      // GPU 在 alpha 通道上做抗锯齿模糊,放大也无锯齿;
+      // 仅处理 brush 大小的小区域,性能跟手
+      eraseWithSmoothMask(outputCtx, outputCanvas, x, y, x, y, brushSize);
     } else {
-      // Restore mode: draw original image with circular mask
-      outputCtx.save();
-      // Create circular clipping path
-      outputCtx.beginPath();
-      outputCtx.arc(x, y, radius, 0, Math.PI * 2);
-      outputCtx.clip();
-      // Draw original image
-      outputCtx.drawImage(originalCanvas, 0, 0);
-      outputCtx.restore();
+      // 修补:用软笔刷 + mask + source-in 模式,即使主画布原来透明也能填上原图
+      restoreWithSmoothMask(outputCtx, outputCanvas, originalCanvas, x, y, x, y, brushSize);
     }
     
     // Also record in mask canvas for history
@@ -2779,42 +2904,13 @@ function App() {
 
     const radius = brushSize / 2;
     const distance = Math.sqrt(Math.pow(to.x - from.x, 2) + Math.pow(to.y - from.y, 2));
-    const steps = Math.max(1, Math.ceil(distance / (radius / 3)));
+    const steps = Math.max(1, Math.ceil(distance / Math.max(0.5, radius * 0.15)));
 
     if (editMode === 'erase') {
-      outputCtx.save();
-      outputCtx.globalCompositeOperation = 'destination-out';
-      
-      for (let i = 0; i <= steps; i++) {
-        const t = i / steps;
-        const x = from.x + (to.x - from.x) * t;
-        const y = from.y + (to.y - from.y) * t;
-        
-        const gradient = outputCtx.createRadialGradient(x, y, 0, x, y, radius);
-        gradient.addColorStop(0, 'rgba(0, 0, 0, 1)');
-        gradient.addColorStop(0.85, 'rgba(0, 0, 0, 1)');
-        gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
-        outputCtx.fillStyle = gradient;
-        outputCtx.beginPath();
-        outputCtx.arc(x, y, radius, 0, Math.PI * 2);
-        outputCtx.fill();
-      }
-      
-      outputCtx.restore();
+      eraseWithSmoothMask(outputCtx, outputCanvas, from.x, from.y, to.x, to.y, brushSize);
     } else {
-      // Restore mode: draw original image along the line
-      for (let i = 0; i <= steps; i++) {
-        const t = i / steps;
-        const x = from.x + (to.x - from.x) * t;
-        const y = from.y + (to.y - from.y) * t;
-        
-        outputCtx.save();
-        outputCtx.beginPath();
-        outputCtx.arc(x, y, radius, 0, Math.PI * 2);
-        outputCtx.clip();
-        outputCtx.drawImage(originalCanvas, 0, 0);
-        outputCtx.restore();
-      }
+      // 修补连续路径:单 stroke + source-in + originalCanvas,平滑且能填透明区域
+      restoreWithSmoothMask(outputCtx, outputCanvas, originalCanvas, from.x, from.y, to.x, to.y, brushSize);
     }
     
     // Record in mask canvas
@@ -3741,7 +3837,7 @@ function App() {
                         disabled={!batchOutputDir}
                         title={batchOutputDir ? `打开 ${batchOutputDir}` : '导出后可用'}
                       >
-                        <span className="btn-icon">📂</span>
+                        <span className="btn-icon"><Icon name="folder-open" /></span>
                         打开目录
                       </button>
                       <button 
@@ -3786,7 +3882,7 @@ function App() {
               onClick={handleSelectImage}
               title="选择本地图片文件 (⌘O,支持 PNG / JPG / WebP / GIF)"
             >
-              <span className="btn-icon">📁</span>
+              <span className="btn-icon"><Icon name="folder-open" /></span>
               <span className="btn-text">选择</span>
             </button>
             {isGifProcessing ? (
@@ -3795,7 +3891,7 @@ function App() {
                 onClick={cancelGifProcessing}
                 title="取消 GIF 处理"
               >
-                <span className="btn-icon">✕</span>
+                <span className="btn-icon"><Icon name="x" /></span>
                 <span className="btn-text">
                   GIF 抠图 {gifProgress.current}/{gifProgress.total}
                 </span>
@@ -3811,7 +3907,7 @@ function App() {
                 disabled={!originalImage || isProcessing}
                 title={!originalImage ? "请先选择图片" : isProcessing ? "正在处理中..." : "使用 AI 模型去除背景 (⌘P)"}
               >
-                <span className="btn-icon">{isProcessing ? <span className="btn-cta-spinner" /> : '✨'}</span>
+                <span className="btn-icon">{isProcessing ? <span className="btn-cta-spinner" /> : <Icon name="sparkles" size={18} />}</span>
                 <span className="btn-text">{isProcessing ? '处理中' : '抠图'}</span>
               </button>
             )}
@@ -3821,7 +3917,7 @@ function App() {
               disabled={!processedImage}
               title={!processedImage ? "请先处理图片" : "导出为图片 (⌘S)"}
             >
-              <span className="btn-icon">💾</span>
+              <span className="btn-icon"><Icon name="download" /></span>
               <span className="btn-text">导出</span>
             </button>
             <button
@@ -3836,7 +3932,7 @@ function App() {
               disabled={!processedImage}
               title={!processedImage ? "请先处理图片" : isOriginalGif ? "GIF 格式不支持复制，请使用导出" : "复制到剪贴板 (⌘C)"}
             >
-              <span className="btn-icon">{copyJustDone ? '✓' : '📋'}</span>
+              <span className="btn-icon">{copyJustDone ? <Icon name="check" /> : <Icon name="copy" />}</span>
               <span className="btn-text">{copyJustDone ? '已复制' : '复制'}</span>
             </button>
           </div>
@@ -3848,7 +3944,7 @@ function App() {
               onClick={() => setShowBatchDialog(true)}
               title="批量处理多张图片"
             >
-              <span className="btn-icon">📂</span>
+              <span className="btn-icon"><Icon name="layers" /></span>
               <span className="btn-text">批量抠图</span>
             </button>
           </div>
@@ -3886,7 +3982,7 @@ function App() {
                   onClick={() => setShowBgPicker(!showBgPicker)}
                   title="背景"
                 >
-                  <span className="btn-icon">🎨</span>
+                  <span className="btn-icon"><Icon name="palette" /></span>
                 </button>
                 {showBgPicker && (
                   <div className="bg-picker-dropdown">
@@ -4200,14 +4296,14 @@ function App() {
                   onClick={() => setEditMode(editMode === 'erase' ? 'none' : 'erase')}
                   title={editMode === 'erase' ? "退出擦除" : "擦除"}
                 >
-                  <span className="btn-icon">🧹</span>
+                  <span className="btn-icon"><Icon name="eraser" /></span>
                 </button>
                 <button
                   className={`btn btn-icon-only ${editMode === 'restore' ? 'btn-active' : ''}`}
                   onClick={() => setEditMode(editMode === 'restore' ? 'none' : 'restore')}
                   title={editMode === 'restore' ? "退出修补" : "修补"}
                 >
-                  <span className="btn-icon">✏️</span>
+                  <span className="btn-icon"><Icon name="brush" /></span>
                 </button>
                 {/* 撤销/重做仅在擦除/修补编辑模式下显示,普通查看时不占空间 */}
                 {editMode !== 'none' && (
@@ -4218,7 +4314,7 @@ function App() {
                       disabled={historyIndex <= 0}
                       title={historyIndex <= 0 ? "无法撤回" : `撤回 (${historyIndex})  ⌘Z`}
                     >
-                      <span className="btn-icon">↩️</span>
+                      <span className="btn-icon"><Icon name="undo" /></span>
                     </button>
                     <button
                       className="btn btn-icon-only"
@@ -4226,7 +4322,7 @@ function App() {
                       disabled={historyIndex >= maskHistory.length - 1}
                       title={historyIndex >= maskHistory.length - 1 ? "无法重做" : `重做 (${maskHistory.length - 1 - historyIndex})  ⇧⌘Z`}
                     >
-                      <span className="btn-icon">↪️</span>
+                      <span className="btn-icon"><Icon name="redo" /></span>
                     </button>
                   </>
                 )}
@@ -4295,9 +4391,7 @@ function App() {
                 onClick={() => setIsOriginalPanelCollapsed(!isOriginalPanelCollapsed)}
                 title={isOriginalPanelCollapsed ? "展开原图" : "收起原图"}
               >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points={isOriginalPanelCollapsed ? "9 18 15 12 9 6" : "15 18 9 12 15 6"}></polyline>
-                </svg>
+                <Icon name={isOriginalPanelCollapsed ? "chevron-right" : "chevron-left"} size={16} />
               </button>
             </div>
             {!isOriginalPanelCollapsed && (
@@ -4340,7 +4434,7 @@ function App() {
               }}
             >
               <div
-                className="image-container"
+                className="image-container image-container-checker"
                 ref={originalTransformRef}
               >
                 {originalImage && (

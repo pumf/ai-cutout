@@ -197,22 +197,37 @@ body {
 
 /* drop-zone 内的"最近打开"网格 */
 .recent-files {
-  margin-top: 24px;
+  margin-top: 16px;
   width: 100%;
   max-width: 560px;
+  flex-shrink: 0;
 }
 .recent-files-title {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--text-secondary);
   text-align: center;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
+/* 单行 + 横向滚动,高度可控 */
 .recent-files-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
-  gap: 12px;
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 4px;
+  scrollbar-width: thin;
+}
+.recent-files-grid::-webkit-scrollbar {
+  height: 4px;
+}
+.recent-files-grid::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 2px;
+}
+.recent-files-grid > .recent-file-item {
+  flex: 0 0 56px;
 }
 .recent-file-item {
   position: relative;
@@ -233,13 +248,13 @@ body {
   box-shadow: 0 4px 10px rgba(0, 0, 0, 0.08);
 }
 .recent-file-item img {
-  width: 80px;
-  height: 80px;
+  width: 48px;
+  height: 64px;
   object-fit: cover;
-  border-radius: 6px;
+  border-radius: 5px;
 }
 .recent-file-name {
-  font-size: 11px;
+  font-size: 10px;
   color: var(--text-secondary);
   width: 100%;
   text-align: center;
@@ -592,28 +607,59 @@ body {
 
 /* 空状态(drop-zone)的提示卡片 */
 .drop-zone-tips {
-  margin-top: 18px;
+  margin-top: 6px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
   width: 100%;
   max-width: 360px;
+  flex-shrink: 0;
 }
 .drop-zone-tip {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px 12px;
+  gap: 8px;
+  padding: 6px 10px;
   background: rgba(255, 255, 255, 0.6);
   border: 1px solid var(--border-color);
-  border-radius: 8px;
-  font-size: 12px;
+  border-radius: 6px;
+  font-size: 11px;
   color: var(--text-secondary);
 }
 .drop-zone-tip-icon {
   font-size: 14px;
   flex-shrink: 0;
 }
+/* 窗口高度 < 600px:隐藏 tips,只保留 icon + 文字 + hint
+   < 480px:进一步压缩 icon */
+@media (max-height: 600px) {
+  .drop-zone-tips {
+    display: none;
+  }
+  .drop-zone {
+    padding: 16px;
+    gap: 8px;
+  }
+  .drop-zone-icon {
+    font-size: 36px;
+    animation: none;
+  }
+  .drop-zone-text {
+    font-size: 15px;
+  }
+}
+@media (max-height: 480px) {
+  .drop-zone-icon {
+    font-size: 28px;
+  }
+  .drop-zone-text {
+    font-size: 13px;
+  }
+  .drop-zone-hint {
+    font-size: 10px;
+  }
+}
+
 .drop-zone-tip kbd {
   font-family: 'SF Mono', Menlo, monospace;
   font-size: 11px;
@@ -888,6 +934,8 @@ body {
   display: grid;
   /* 3 列:左 panel / 分隔条 / 右 panel */
   grid-template-columns: 1fr 8px 1fr;
+  /* 单一行撑满 workspace 高度,让 panel 跟随窗口高度自适应 */
+  grid-template-rows: 1fr;
   gap: 0;
   min-height: 0;
   transition: grid-template-columns 0.25s ease;
@@ -964,29 +1012,29 @@ body {
 .panel {
   display: flex;
   flex-direction: column;
-  background: linear-gradient(135deg, #ffffff 0%, #fafbfc 100%);
-  border-radius: var(--radius-lg);
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06), 0 1px 3px rgba(0, 0, 0, 0.04);
-  border: 1px solid rgba(203, 213, 225, 0.4);
+  background: #ffffff;
+  border-radius: 10px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  border: 1px solid rgba(226, 232, 240, 0.8);
   overflow: visible;
-  transition: box-shadow 0.3s ease;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 .panel:hover {
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.08), 0 2px 8px rgba(0, 0, 0, 0.04);
+  border-color: rgba(203, 213, 225, 0.9);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
 }
 
 .panel-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 14px 18px;
-  border-bottom: 1px solid rgba(203, 213, 225, 0.5);
+  padding: 10px 14px;
+  border-bottom: 1px solid rgba(226, 232, 240, 0.7);
   font-weight: 600;
-  font-size: 14px;
+  font-size: 13px;
   color: #475569;
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.8) 0%, rgba(248, 250, 252, 0.8) 100%);
-  backdrop-filter: blur(8px);
+  background: rgba(248, 250, 252, 0.5);
 }
 
 .preview-badge {
@@ -1529,6 +1577,17 @@ body {
   backface-visibility: hidden;
 }
 
+/* 透明图像识别用棋盘格背景(原图带透明 PNG/WebP 时用户能看清哪里是透明) */
+.image-container-checker {
+  background-image:
+    linear-gradient(45deg, #ccc 25%, transparent 25%),
+    linear-gradient(-45deg, #ccc 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #ccc 75%),
+    linear-gradient(-45deg, transparent 75%, #ccc 75%);
+  background-size: 20px 20px;
+  background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
+}
+
 .image-container .preview-image {
   display: block;
   max-width: none;
@@ -1551,15 +1610,16 @@ body {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 16px;
-  padding: 60px 40px;
+  gap: 12px;
+  padding: 24px 20px;
   border-radius: var(--radius-lg);
   transition: all 0.3s ease;
   height: 100%;
   background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 50%, #e2e8f0 100%);
   border: 2px dashed #cbd5e1;
   position: relative;
-  overflow: hidden;
+  /* 内容总高度超过容器时,可在 drop-zone 内滚动而非溢出 */
+  overflow: auto;
 }
 
 .drop-zone::before {
@@ -1577,12 +1637,14 @@ body {
 }
 
 .drop-zone-icon {
-  font-size: 64px;
-  opacity: 0.8;
+  font-size: 48px;
+  line-height: 1;
+  opacity: 0.85;
   filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.1));
   animation: float 3s ease-in-out infinite;
   position: relative;
   z-index: 1;
+  flex-shrink: 0;
 }
 
 @keyframes float {
