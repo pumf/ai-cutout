@@ -239,22 +239,24 @@ jobs:
           cat > release_notes.md << EOF
           ## 小飞AI抠图 v${VERSION}
 
-          ### 安装包
-          | 平台 | 文件 | 说明 |
-          |------|------|------|
-          | macOS Apple Silicon | 小飞AI抠图-${VERSION}-arm64.dmg | M1/M2/M3 Mac |
-          | macOS Intel | 小飞AI抠图-${VERSION}.dmg | Intel Mac |
-          | Windows | 小飞AI抠图 Setup ${VERSION}.exe | Windows 10/11 (x64) |
-          | Linux | 小飞AI抠图-${VERSION}.AppImage | Ubuntu/Debian 等 (x64) |
+          ### macOS 用户重要提示 ⚠️
+
+          应用未做 Apple 公证 (Notarization),macOS Sonoma/Sequoia 直接打开会报 "已损坏,无法打开"。
+          **这不是真损坏**,只是 Gatekeeper 误报。安装后,在终端执行**一次**:
+
+          \`\`\`bash
+          sudo xattr -rd com.apple.quarantine /Applications/小飞AI抠图.app
+          \`\`\`
+
+          输入密码后双击应用即可正常打开。
 
           ### 系统要求
-          - **macOS**: macOS 11.0+ (内置 Python,无需额外配置)
-          - **Windows**: Windows 10+ (内置 Python,无需额外配置)
-          - **Linux**: Ubuntu 20.04+ / Debian 11+ / 同等发行版
+          - **macOS**: macOS 11.0+
+          - **Windows**: Windows 10+
+          - **Linux**: Ubuntu 20.04+ / Debian 11+ 或同等发行版
 
-          ### 注意事项
-          - macOS 用户首次启动需在 系统设置 > 隐私与安全 中允许应用运行 (未签名)
-          - Linux 用户需为 AppImage 添加可执行权限: \`chmod +x 小飞AI抠图-${VERSION}.AppImage\`
+          ### 其他注意事项
+          - Linux 用户需为 AppImage 添加可执行权限
           EOF
           # 若 release 已存在 gh 会返回非零,允许失败但保留 stderr 让我们看到原因
           if ! gh release create "v${VERSION}" \
