@@ -66,7 +66,8 @@ jobs:
           if-no-files-found: warn
 
   build-macos-x64:
-    runs-on: macos-13
+    # 用 ARM runner + Rosetta 跑 x86_64 venv,避免 macos-13 Intel runner 排队卡死
+    runs-on: macos-14
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -79,19 +80,21 @@ jobs:
           node-version: '20'
           cache: 'npm'
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
       - name: Install dependencies
         run: npm ci
 
-      - name: Setup Python venv (x64 native)
+      - name: Setup Python venv (x64 via Rosetta)
+        # 直接用 Apple 自带 /usr/bin/python3 (universal binary),
+        # arch -x86_64 强制走 Rosetta,pip 自动下 x86_64 wheels
         run: |
-          python3 -m venv venv-x64
-          venv-x64/bin/pip install --upgrade pip
-          venv-x64/bin/pip install $PY_DEPS
+          arch -x86_64 /usr/bin/python3 -m venv venv-x64
+          arch -x86_64 venv-x64/bin/python3 -m pip install --upgrade pip
+          arch -x86_64 venv-x64/bin/python3 -m pip install $PY_DEPS
+          # 验证 site-packages 中没有 arm64-only .so
+          echo "=== 架构核验 ==="
+          find venv-x64/lib -name "*.so" -o -name "*.dylib" 2>/dev/null | while read f; do
+            file "$f" | grep -oE 'arm64$|x86_64$|universal binary' || true
+          done | sort | uniq -c
 
       - name: Build (DMG)
         run: |
