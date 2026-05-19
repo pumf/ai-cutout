@@ -21,25 +21,30 @@ if [ -d "venv-minimal" ]; then
 fi
 
 if [ "$ARCH" = "x64" ] || [ "$ARCH" = "x86_64" ]; then
-    # 使用 venv-x64 (Universal Binary 支持 x86_64)
+    # venv-x64: 真正 x86_64 site-packages (在 arch -x86_64 上下文下安装)
     if [ -d "venv-x64" ]; then
         cp -r venv-x64 venv-minimal
-        echo "✓ 已复制 venv-x64 到 venv-minimal"
+        echo "✓ 已复制 venv-x64 (x86_64) 到 venv-minimal"
     else
-        echo "❌ 错误: venv-x64 不存在，请先运行 ./scripts/prepare-x64-venv.sh"
-        # 恢复备份
+        echo "❌ 错误: venv-x64 不存在,请先运行 ./scripts/prepare-x64-venv.sh"
         mv venv-minimal-backup venv-minimal
         exit 1
     fi
 elif [ "$ARCH" = "arm64" ]; then
-    # 使用 venv (ARM64 native)
-    echo "✓ 为 ARM64 创建精简 venv..."
-    ./scripts/create-minimal-venv.sh
+    # venv-arm64: arm64 native site-packages
+    if [ -d "venv-arm64" ]; then
+        cp -r venv-arm64 venv-minimal
+        echo "✓ 已复制 venv-arm64 (arm64) 到 venv-minimal"
+    else
+        echo "❌ 错误: venv-arm64 不存在"
+        mv venv-minimal-backup venv-minimal
+        exit 1
+    fi
 else
-    # Universal - 使用 venv-x64 (它是 Universal Binary)
+    # Universal/默认 - 用 x64 (Universal Binary Python,site-packages 是 x86_64)
     if [ -d "venv-x64" ]; then
         cp -r venv-x64 venv-minimal
-        echo "✓ 已复制 venv-x64 (Universal) 到 venv-minimal"
+        echo "✓ 已复制 venv-x64 到 venv-minimal"
     else
         echo "❌ 错误: venv-x64 不存在"
         mv venv-minimal-backup venv-minimal

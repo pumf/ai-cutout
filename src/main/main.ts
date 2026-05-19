@@ -290,6 +290,13 @@ async function startPythonBackend(): Promise<void> {
       : path.join(appPath, 'logs');
     try { fs.mkdirSync(backendLogDir, { recursive: true }); } catch {}
 
+    // 嵌入式 venv (打包态) 必须设 PYTHONHOME 指向 venv 根目录,
+    // 否则 Apple 自带 Python framework 会去找 CLT / Xcode 路径下的 stdlib,
+    // 用户机器没装 CommandLineTools 时会启动失败。
+    const embeddedVenvHome = app.isPackaged && pythonCmd.includes(path.join('venv', 'bin'))
+      ? path.dirname(path.dirname(pythonCmd))
+      : null;
+
     pythonProcess = spawn(pythonCmd, spawnArgs, {
       stdio: 'pipe',
       shell: false, // Don't use shell to avoid escaping issues
@@ -301,6 +308,7 @@ async function startPythonBackend(): Promise<void> {
         PYTHONPATH: process.resourcesPath,
         PYTHONUNBUFFERED: '1', // Ensure Python output is not buffered
         AI_CUTOUT_LOG_DIR: backendLogDir, // 后端读此 env 决定日志路径
+        ...(embeddedVenvHome ? { PYTHONHOME: embeddedVenvHome } : {}),
       }
     });
 

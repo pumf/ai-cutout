@@ -3,7 +3,7 @@
 一款完全本地运行的AI智能抠图桌面应用，基于 Electron + React 构建，安装包仅 300MB，保护您的隐私，无需联网即可快速去除图片背景。
 
 ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-blue)
-![Version](https://img.shields.io/badge/version-1.0.3-green)
+![Version](https://img.shields.io/badge/version-1.1.1-green)
 ![License](https://img.shields.io/badge/license-MIT-yellow)
 ![Electron](https://img.shields.io/badge/electron-28.x-blueviolet)
 ![React](https://img.shields.io/badge/react-18.x-61DAFB)
@@ -12,10 +12,10 @@
 
 | 平台 | 下载地址 | 体积 |
 |------|----------|------|
-| macOS Apple Silicon (M1/M2/M3) | [小飞AI抠图-1.0.3-arm64.dmg](https://github.com/pumf/ai-cutout/releases) | ~311MB |
-| macOS Intel | [小飞AI抠图-1.0.3-x64.dmg](https://github.com/pumf/ai-cutout/releases) | ~311MB |
-| Windows | [小飞AI抠图-1.0.3-setup.exe](https://github.com/pumf/ai-cutout/releases) | ~311MB |
-| Linux | [小飞AI抠图-1.0.3.AppImage](https://github.com/pumf/ai-cutout/releases) | ~311MB |
+| macOS Apple Silicon (M1/M2/M3) | [小飞AI抠图-1.1.1-arm64.dmg](https://github.com/pumf/ai-cutout/releases) | ~311MB |
+| macOS Intel | [小飞AI抠图-1.1.1-x64.dmg](https://github.com/pumf/ai-cutout/releases) | ~311MB |
+| Windows | [小飞AI抠图-1.1.1-setup.exe](https://github.com/pumf/ai-cutout/releases) | ~311MB |
+| Linux | [小飞AI抠图-1.1.1.AppImage](https://github.com/pumf/ai-cutout/releases) | ~311MB |
 
 ## 软件介绍
 
@@ -71,7 +71,7 @@
 
 ### 版本演进
 
-| 项目 | Tauri 版 (v1.0.0) | Electron 版 (v1.0.3) | 说明 |
+| 项目 | Tauri 版 (v1.0.0) | Electron 版 (v1.1.1) | 说明 |
 |------|-------------------|----------------------|------|
 | 安装包体积 | ~170 MB | ~311 MB | Electron 包含 Chromium |
 | 启动速度 | 秒开 | 较快 | Electron 需加载 Chromium |
@@ -185,7 +185,7 @@ ai-cutout/
 
 #### macOS
 
-1. 下载 `小飞AI抠图-1.0.3-arm64.dmg` (Apple Silicon M1/M2/M3) 或 `小飞AI抠图-1.0.3-x64.dmg` (Intel)
+1. 下载 `小飞AI抠图-1.1.1-arm64.dmg` (Apple Silicon M1/M2/M3) 或 `小飞AI抠图-1.1.1-x64.dmg` (Intel)
 2. 打开 DMG 文件
 3. 将应用拖拽到应用程序文件夹
 4. 首次打开可能需要右键点击选择"打开"
@@ -199,7 +199,7 @@ ai-cutout/
 
 #### Windows
 
-1. 下载 `小飞AI抠图-1.0.3-setup.exe` (x64) 或 `小飞AI抠图-1.0.3-arm64.exe` (ARM64)
+1. 下载 `小飞AI抠图-1.1.1-setup.exe` (x64) 或 `小飞AI抠图-1.1.1-arm64.exe` (ARM64)
 2. **安装 Python 3.9+**（如果尚未安装）
    - 从 [python.org](https://www.python.org/downloads/) 下载
    - **重要**: 安装时勾选 "Add Python to PATH"
@@ -213,9 +213,9 @@ ai-cutout/
 
 #### Linux
 
-1. 下载 `小飞AI抠图-1.0.3.AppImage`
-2. 添加执行权限：`chmod +x 小飞AI抠图-1.0.3.AppImage`
-3. 运行：`./小飞AI抠图-1.0.3.AppImage`
+1. 下载 `小飞AI抠图-1.1.1.AppImage`
+2. 添加执行权限：`chmod +x 小飞AI抠图-1.1.1.AppImage`
+3. 运行：`./小飞AI抠图-1.1.1.AppImage`
 
 **依赖要求**: Linux 系统需要安装 Python 3.9+ 和相关依赖（AppImage 已内置）
 

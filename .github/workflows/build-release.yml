@@ -7,13 +7,19 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version number (e.g., 1.0.3)'
+        description: 'Version number (e.g., 1.1.1)'
         required: true
-        default: '1.0.3'
+        default: '1.1.1'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
+
+# 跨平台共享的最小 Python 依赖
+# 后端 torch / safetensors 是可选的 (try/except),1.4 ONNX 模型完全不需要,故全平台都不装
+# 减小包体积并避免 torch wheel 在各平台的兼容性问题
+env:
+  PY_DEPS: numpy pillow onnxruntime fastapi uvicorn python-multipart python-json-logger
 
 jobs:
   build-macos-arm64:
@@ -21,6 +27,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -36,20 +44,17 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build
-        run: npm run build
-
-      - name: Setup Python venv
+      - name: Setup Python venv (arm64)
         run: |
           python3 -m venv venv-arm64
-          source venv-arm64/bin/activate
-          pip install --upgrade pip
-          pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
-          pip install numpy pillow fastapi uvicorn python-multipart python-json-logger onnxruntime-silicon
-          deactivate
+          venv-arm64/bin/pip install --upgrade pip
+          venv-arm64/bin/pip install $PY_DEPS
 
-      - name: Build DMG
-        run: npx electron-builder --mac --arm64 --publish never
+      - name: Build (DMG)
+        run: |
+          ./scripts/prepare-venv-for-arch.sh arm64
+          npm run build
+          npx electron-builder --mac --arm64 --publish never
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -61,11 +66,12 @@ jobs:
           if-no-files-found: warn
 
   build-macos-x64:
-    runs-on: macos-12
-    if: always()
+    runs-on: macos-13
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -81,20 +87,17 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build
-        run: npm run build
-
-      - name: Setup Python venv
+      - name: Setup Python venv (x64 native)
         run: |
           python3 -m venv venv-x64
-          source venv-x64/bin/activate
-          pip install --upgrade pip
-          pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
-          pip install numpy pillow onnxruntime fastapi uvicorn python-multipart python-json-logger
-          deactivate
+          venv-x64/bin/pip install --upgrade pip
+          venv-x64/bin/pip install $PY_DEPS
 
-      - name: Build DMG
-        run: npx electron-builder --mac --x64 --publish never
+      - name: Build (DMG)
+        run: |
+          ./scripts/prepare-venv-for-arch.sh x64
+          npm run build
+          npx electron-builder --mac --x64 --publish never
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -110,6 +113,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -125,20 +130,18 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build
-        run: npm run build
-
-      - name: Setup Python venv
-        shell: cmd
+      - name: Setup Python venv (Windows x64)
+        shell: bash
         run: |
-          python -m venv venv-x64
-          .\venv-x64\Scripts\activate.bat
-          pip install --upgrade pip
-          pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
-          pip install numpy pillow onnxruntime fastapi uvicorn python-multipart python-json-logger
+          python -m venv venv-minimal
+          venv-minimal/Scripts/pip install --upgrade pip
+          venv-minimal/Scripts/pip install $PY_DEPS
 
-      - name: Build Installer
-        run: npx electron-builder --win --x64 --publish never
+      - name: Build (NSIS)
+        shell: bash
+        run: |
+          npm run build
+          npx electron-builder --win --x64 --publish never
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -149,8 +152,55 @@ jobs:
           path: release/*.exe
           if-no-files-found: warn
 
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install system deps for AppImage build
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fakeroot rpm libarchive-tools
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Setup Python venv (Linux x64)
+        run: |
+          python3 -m venv venv-minimal
+          venv-minimal/bin/pip install --upgrade pip
+          venv-minimal/bin/pip install $PY_DEPS
+
+      - name: Build (AppImage)
+        run: |
+          npm run build
+          npx electron-builder --linux AppImage --x64 --publish never
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-x64
+          path: release/*.AppImage
+          if-no-files-found: warn
+
   release:
-    needs: [build-macos-arm64, build-macos-x64, build-windows]
+    needs: [build-macos-arm64, build-macos-x64, build-windows, build-linux]
     runs-on: ubuntu-latest
     if: always()
     permissions:
@@ -166,12 +216,6 @@ jobs:
         run: |
           echo "Artifacts directory structure:"
           ls -R artifacts/ || echo "No artifacts found"
-          echo ""
-          echo "DMG files:"
-          find artifacts/ -name "*.dmg" -type f 2>/dev/null || echo "No DMG files"
-          echo ""
-          echo "EXE files:"
-          find artifacts/ -name "*.exe" -type f 2>/dev/null || echo "No EXE files"
 
       - name: Get version
         id: ver
@@ -182,7 +226,6 @@ jobs:
             VERSION="${GITHUB_REF#refs/tags/v}"
           fi
           echo "VERSION=$VERSION" >> $GITHUB_ENV
-          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
           echo "Version: $VERSION"
 
       - name: Create Release
@@ -190,60 +233,39 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION="${{ env.VERSION }}"
-          echo "Creating release for version: $VERSION"
-          # Create release notes file
-          cat > release_notes.md << 'EOF'
+          cat > release_notes.md << EOF
           ## 小飞AI抠图 v${VERSION}
-
-          ### 更新内容
-          - 优化模型列表加载状态显示
-          - 修复复制到剪贴板功能
-          - 修复导出图片默认文件名
-          - 修复缩放比例同步问题
-          - 添加跨平台支持（macOS Intel/ARM64、Windows）
-          - 改进错误处理和用户提示
 
           ### 安装包
           | 平台 | 文件 | 说明 |
           |------|------|------|
           | macOS Apple Silicon | 小飞AI抠图-${VERSION}-arm64.dmg | M1/M2/M3 Mac |
-          | macOS Intel | 小飞AI抠图-${VERSION}-x64.dmg | Intel Mac |
-          | Windows | 小飞AI抠图-Setup-${VERSION}.exe | Windows 10/11 |
+          | macOS Intel | 小飞AI抠图-${VERSION}.dmg | Intel Mac |
+          | Windows | 小飞AI抠图 Setup ${VERSION}.exe | Windows 10/11 (x64) |
+          | Linux | 小飞AI抠图-${VERSION}.AppImage | Ubuntu/Debian 等 (x64) |
 
           ### 系统要求
-          - **macOS**: macOS 11.0 或更高版本
-          - **Windows**: Windows 10 或更高版本，需要安装 Python 3.9+
+          - **macOS**: macOS 11.0+ (内置 Python,无需额外配置)
+          - **Windows**: Windows 10+ (内置 Python,无需额外配置)
+          - **Linux**: Ubuntu 20.04+ / Debian 11+ / 同等发行版
 
           ### 注意事项
-          - macOS 用户可能需要在 系统设置 > 隐私与安全 中允许应用运行
-          - Windows 用户请确保已安装 Python 3.9+ 并添加到 PATH
+          - macOS 用户首次启动需在 系统设置 > 隐私与安全 中允许应用运行 (未签名)
+          - Linux 用户需为 AppImage 添加可执行权限: \`chmod +x 小飞AI抠图-${VERSION}.AppImage\`
           EOF
-          # Create the release
           gh release create "v${VERSION}" \
             --title "小飞AI抠图 v${VERSION}" \
             --notes-file release_notes.md \
             --draft=false \
             --prerelease=false \
-            2>/dev/null || echo "Release may already exist, continuing to upload files..."
+            2>/dev/null || echo "Release may already exist, continuing to upload..."
 
-      - name: Upload DMG files
+      - name: Upload all build artifacts
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION="${{ env.VERSION }}"
-          echo "Uploading DMG files for version: $VERSION"
-          for file in $(find artifacts/ -name "*.dmg" -type f 2>/dev/null); do
-            echo "Uploading: $file"
-            gh release upload "v${VERSION}" "$file" --clobber || echo "Failed to upload $file"
-          done
-
-      - name: Upload EXE files
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          VERSION="${{ env.VERSION }}"
-          echo "Uploading EXE files for version: $VERSION"
-          for file in $(find artifacts/ -name "*.exe" -type f 2>/dev/null); do
+          for file in $(find artifacts/ -type f \( -name "*.dmg" -o -name "*.exe" -o -name "*.AppImage" \) 2>/dev/null); do
             echo "Uploading: $file"
             gh release upload "v${VERSION}" "$file" --clobber || echo "Failed to upload $file"
           done
@@ -253,5 +275,4 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION="${{ env.VERSION }}"
-          echo "Release v${VERSION} created successfully!"
           gh release view "v${VERSION}" --json tagName,name,assets || echo "Could not verify release"
