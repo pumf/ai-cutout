@@ -256,22 +256,26 @@ jobs:
           - macOS 用户首次启动需在 系统设置 > 隐私与安全 中允许应用运行 (未签名)
           - Linux 用户需为 AppImage 添加可执行权限: \`chmod +x 小飞AI抠图-${VERSION}.AppImage\`
           EOF
-          gh release create "v${VERSION}" \
+          # 若 release 已存在 gh 会返回非零,允许失败但保留 stderr 让我们看到原因
+          if ! gh release create "v${VERSION}" \
             --title "小飞AI抠图 v${VERSION}" \
             --notes-file release_notes.md \
             --draft=false \
-            --prerelease=false \
-            2>/dev/null || echo "Release may already exist, continuing to upload..."
+            --prerelease=false; then
+            echo "::warning::gh release create 失败 (可能 release 已存在),继续 upload"
+          fi
 
       - name: Upload all build artifacts
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION="${{ env.VERSION }}"
-          for file in $(find artifacts/ -type f \( -name "*.dmg" -o -name "*.exe" -o -name "*.AppImage" \) 2>/dev/null); do
-            echo "Uploading: $file"
-            gh release upload "v${VERSION}" "$file" --clobber || echo "Failed to upload $file"
-          done
+          # 用 -print0/read 处理含空格/中文的文件名 (Windows .exe 文件名带空格)
+          find artifacts/ -type f \( -name "*.dmg" -o -name "*.exe" -o -name "*.AppImage" \) -print0 \
+            | while IFS= read -r -d '' file; do
+              echo "Uploading: $file"
+              gh release upload "v${VERSION}" "$file" --clobber || echo "::error::Failed to upload $file"
+            done
 
       - name: Verify Release
         env:
