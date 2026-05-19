@@ -36,19 +36,17 @@ jobs:
           node-version: '20'
           cache: 'npm'
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
       - name: Install dependencies
         run: npm ci
 
-      - name: Setup Python venv (arm64)
+      - name: Setup Python venv (arm64, self-contained framework)
+        # 用 Apple 自带 /usr/bin/python3 (CLT framework Python),避免 actions/setup-python
+        # 装的 Python 走 /Users/runner/hostedtoolcache 路径,该路径在用户机器不存在
         run: |
-          python3 -m venv venv-arm64
-          venv-arm64/bin/pip install --upgrade pip
-          venv-arm64/bin/pip install $PY_DEPS
+          /usr/bin/python3 -m venv venv-arm64
+          venv-arm64/bin/python3 -m pip install --upgrade pip
+          venv-arm64/bin/python3 -m pip install $PY_DEPS
+          ./scripts/bundle-venv-framework.sh venv-arm64
 
       - name: Build (DMG)
         run: |
@@ -83,14 +81,15 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Setup Python venv (x64 via Rosetta)
-        # 直接用 Apple 自带 /usr/bin/python3 (universal binary),
-        # arch -x86_64 强制走 Rosetta,pip 自动下 x86_64 wheels
+      - name: Setup Python venv (x64 via Rosetta, self-contained framework)
+        # 用 Apple 自带 /usr/bin/python3 (universal binary), arch -x86_64 走 Rosetta,
+        # pip 自动下 x86_64 wheels;bundle 脚本把 framework lib + stdlib 复制进 venv
         run: |
           arch -x86_64 /usr/bin/python3 -m venv venv-x64
           arch -x86_64 venv-x64/bin/python3 -m pip install --upgrade pip
           arch -x86_64 venv-x64/bin/python3 -m pip install $PY_DEPS
-          # 验证 site-packages 中没有 arm64-only .so
+          ./scripts/bundle-venv-framework.sh venv-x64
+          # 架构核验:不应有 arm64-only .so
           echo "=== 架构核验 ==="
           find venv-x64/lib -name "*.so" -o -name "*.dylib" 2>/dev/null | while read f; do
             file "$f" | grep -oE 'arm64$|x86_64$|universal binary' || true
