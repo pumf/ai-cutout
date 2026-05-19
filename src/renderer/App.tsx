@@ -1,9 +1,22 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import './App.css';
 import { GifReader, GifWriter } from 'omggif';
-import { listFixedModels, loadFixedModel, loadCustomModel, processImageWithModel, selectModel, openExternalUrl, saveImage, selectImage, loadImageFromPath, copyImageToClipboard, checkForUpdates, getBackendPort, selectMultipleImages, selectFolder, saveImageToPath } from '../api';
+import { listFixedModels, loadFixedModel, loadCustomModel, processImageWithModel, selectModel, openExternalUrl, saveImage, selectImage, loadImageFromPath, copyImageToClipboard, checkForUpdates, getBackendPort, selectMultipleImages, selectFolder, saveImageToPath, showItemInFolder } from '../api';
 import { TitleBar } from './components/TitleBar';
 import { Icon } from './components/Icon';
+import { BatchPreviewModal } from './components/BatchPreviewModal';
+import { GifFramePreviewModal } from './components/GifFramePreviewModal';
+import { ShortcutsModal } from './components/ShortcutsModal';
+import { PasteConfirmModal } from './components/PasteConfirmModal';
+import { ExportDialog } from './components/ExportDialog';
+import { DownloadInfoModal } from './components/DownloadInfoModal';
+import { UpdateModal } from './components/UpdateModal';
+import { ModelSelectorModal } from './components/ModelSelectorModal';
+import { HelpModal } from './components/HelpModal';
+import { BackgroundPicker } from './components/BackgroundPicker';
+import { BatchProcessingModal } from './components/BatchProcessingModal';
+import { SettingsModal } from './components/SettingsModal';
+import type { BatchTask, RecentFile, CustomScene, BgFillMode, ModelInfo, CurrentModel, UpdateInfo, ToastState, DownloadDialogInfo } from './types';
 
 // 声明 vite 注入的全局变量
 declare const __APP_VERSION__: string;
@@ -13,10 +26,11 @@ function App() {
   const [processedImage, setProcessedImage] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [modelStatus, setModelStatus] = useState<'loading' | 'ready' | 'error'>('loading');
-  const [currentModel, setCurrentModel] = useState<{name: string; display_name?: string; path: string} | null>(null);
-  const [availableModels, setAvailableModels] = useState<{id: string; name: string; display_name?: string; path: string | null; type: string; size_mb: number; exists: boolean; download_url?: string}[]>([]);
+  const [currentModel, setCurrentModel] = useState<CurrentModel | null>(null);
+  const [availableModels, setAvailableModels] = useState<ModelInfo[]>([]);
   const [showModelSelector, setShowModelSelector] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [isLoadingModel, setIsLoadingModel] = useState(false);
   const [loadingModelId, setLoadingModelId] = useState<string | null>(null);
   const [errorModelId, setErrorModelId] = useState<string | null>(null);
@@ -24,30 +38,16 @@ function App() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Batch processing states
-  interface BatchTask {
-    id: string;
-    file: File;
-    fileName: string;
-    status: 'pending' | 'processing' | 'success' | 'error' | 'retrying';
-    progress: number;
-    originalImage?: string;
-    processedImage?: string;
-    error?: string;
-    retryCount: number;
-    processingTime?: number;
-  }
-
   const [showBatchDialog, setShowBatchDialog] = useState(false);
   const [batchTasks, setBatchTasks] = useState<BatchTask[]>([]);
   const [isBatchProcessing, setIsBatchProcessing] = useState(false);
-  const [batchOutputDir, setBatchOutputDir] = useState<string>('');
   const [batchPrefix, setBatchPrefix] = useState<string>('removed_bg_');
   const [batchConcurrency, setBatchConcurrency] = useState<number>(2);
   const [outputFormat, setOutputFormat] = useState<'png' | 'webp' | 'jpg'>('png');
   const [autoCrop, setAutoCrop] = useState<boolean>(true);
   const [featherRadius, setFeatherRadius] = useState<number>(0);
   const [showExportDialog, setShowExportDialog] = useState(false);
-  const [recentFiles, setRecentFiles] = useState<Array<{ path: string; name: string; thumbnail: string; timestamp: number }>>([]);
+  const [recentFiles, setRecentFiles] = useState<RecentFile[]>([]);
   const abortBatchRef = useRef<boolean>(false);
   const batchAbortControllerRef = useRef<AbortController | null>(null);
   const batchStartTimeRef = useRef<number>(0);
@@ -58,13 +58,7 @@ function App() {
 
   // Update check states
   const [showUpdateDialog, setShowUpdateDialog] = useState(false);
-  const [updateInfo, setUpdateInfo] = useState<{
-    hasUpdate: boolean;
-    currentVersion: string;
-    latestVersion: string;
-    releaseUrl?: string;
-    releaseNotes?: string;
-  } | null>(null);
+  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
 
   const [scale, setScale] = useState(1);
   const [translateX, setTranslateX] = useState(0);
@@ -123,13 +117,13 @@ function App() {
   const [bgImage, setBgImage] = useState<string | null>(null);
   const [bgImageName, setBgImageName] = useState<string | null>(null);
   const [recentColors, setRecentColors] = useState<string[]>([]);
-  const [bgFillMode, setBgFillMode] = useState<'cover' | 'contain' | 'center' | 'repeat' | 'custom'>('cover');
+  const [bgFillMode, setBgFillMode] = useState<BgFillMode>('cover');
   const [bgAlpha, setBgAlpha] = useState<number>(100); // 0-100 纯色背景不透明度
   const [bgScale, setBgScale] = useState<number>(100); // 50-300 背景图缩放
   const [bgOffsetX, setBgOffsetX] = useState<number>(0); // -50..50 X 偏移(%)
   const [bgOffsetY, setBgOffsetY] = useState<number>(0); // -50..50 Y 偏移(%)
   const [showBgAdvanced, setShowBgAdvanced] = useState(false);
-  const [customScenes, setCustomScenes] = useState<Array<{ name: string; color: string }>>([]);
+  const [customScenes, setCustomScenes] = useState<CustomScene[]>([]);
   const [addingScene, setAddingScene] = useState(false);
   const [newSceneName, setNewSceneName] = useState('');
   const [showBgPicker, setShowBgPicker] = useState(false);
@@ -142,8 +136,12 @@ function App() {
   const zoomControlRef = useRef<HTMLDivElement>(null);
 
   // Toast state
-  const [toast, setToast] = useState<{message: string; type: 'success' | 'info' | 'error'; visible: boolean}>({message: '', type: 'info', visible: false});
+  const [toast, setToast] = useState<ToastState>({message: '', type: 'info', visible: false});
   const toastTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // 导出成功后的浮动"查看"按钮:5 秒内不点击自动消失
+  const [exported, setExported] = useState<{ path: string; label: string } | null>(null);
+  const exportedTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Keyboard shortcuts help
   const [showShortcuts, setShowShortcuts] = useState(false);
@@ -154,7 +152,7 @@ function App() {
   const [pendingFile, setPendingFile] = useState<File | null>(null);
 
   // Download model dialog
-  const [downloadDialog, setDownloadDialog] = useState<{ url: string; modelName: string; displayName: string } | null>(null);
+  const [downloadDialog, setDownloadDialog] = useState<DownloadDialogInfo | null>(null);
 
   // GIF processing state
   const [isGifProcessing, setIsGifProcessing] = useState(false);
@@ -1965,11 +1963,11 @@ function App() {
       // Use Electron's dialog to select output directory
       const result = await selectFolder();
       if (!result || result.canceled) return;
-      
+
       const outputDir = result.filePaths[0];
-      setBatchOutputDir(outputDir);
       let exported = 0;
-      
+      let lastOutputPath = '';
+
       for (const task of successTasks) {
         try {
           const isGifTask = task.fileName.toLowerCase().endsWith('.gif');
@@ -1998,13 +1996,18 @@ function App() {
           }
 
           await saveImageToPath(dataUrl, outputPath);
+          lastOutputPath = outputPath;
           exported++;
         } catch (err) {
           console.error('Export failed for task:', task.id, err);
         }
       }
-      
-      showToast(`导出完成: ${exported}/${successTasks.length}`, exported > 0 ? 'success' : 'error');
+
+      if (exported > 0 && lastOutputPath) {
+        flashExportedPath(lastOutputPath, `批量导出完成 (${exported}/${successTasks.length})`);
+      } else {
+        showToast('导出失败', 'error');
+      }
     } catch (err) {
       console.error('Export failed:', err);
       showToast('导出失败', 'error');
@@ -2066,7 +2069,7 @@ function App() {
 
       const result = await saveImage(imageData, defaultName);
       if (result) {
-        showToast('图片已导出', 'success');
+        flashExportedPath(result);
       }
     } catch (e) {
       console.error('Failed to save image:', e);
@@ -2337,6 +2340,21 @@ function App() {
     toastTimeoutRef.current = setTimeout(() => {
       setToast(prev => ({ ...prev, visible: false }));
     }, 3000);
+  };
+
+  // 导出成功后 flash 一个浮动 pill,5 秒内不点击自动消失
+  const flashExportedPath = (filePath: string, label: string = '图片已导出') => {
+    if (exportedTimerRef.current) clearTimeout(exportedTimerRef.current);
+    setExported({ path: filePath, label });
+    exportedTimerRef.current = setTimeout(() => setExported(null), 5000);
+  };
+
+  const dismissExportedPath = () => {
+    if (exportedTimerRef.current) {
+      clearTimeout(exportedTimerRef.current);
+      exportedTimerRef.current = null;
+    }
+    setExported(null);
   };
 
   // Keyboard shortcuts
@@ -3075,7 +3093,7 @@ function App() {
           const imageData = `data:image/gif;base64,${base64}`;
           const result = await saveImage(imageData, 'removed_bg_edited.gif');
           if (result) {
-            showToast('GIF 已导出', 'success');
+            flashExportedPath(result);
           }
           // If result is null, user cancelled - no message needed
         } else {
@@ -3091,7 +3109,7 @@ function App() {
         const imageData = `data:image/gif;base64,${base64}`;
         const result = await saveImage(imageData, 'removed_bg.gif');
         if (result) {
-          showToast('GIF 已导出', 'success');
+          flashExportedPath(result);
         }
         // If result is null, user cancelled - no message needed
       }
@@ -3110,7 +3128,7 @@ function App() {
 
     const result = await saveImage(dataUrl, `removed_bg_edited.${formatExt(outputFormat)}`);
     if (result) {
-      showToast('图片已导出', 'success');
+      flashExportedPath(result);
     }
     // If result is null, user cancelled - no message needed
   };
@@ -3200,200 +3218,49 @@ function App() {
         onShowModelSelector={() => setShowModelSelector(true)}
         onShowHelp={() => setShowHelp(true)}
       />
+      {showSettings && (
+        <SettingsModal
+          onClose={() => setShowSettings(false)}
+          appVersion={__APP_VERSION__}
+          availableModels={availableModels}
+          currentModel={currentModel}
+          loadingModelId={loadingModelId}
+          errorModelId={errorModelId}
+          onLoadModel={handleLoadFixedModel}
+          onSelectCustomModel={selectCustomModel}
+          onRefreshModels={async () => {
+            const list = await listFixedModels();
+            if (Array.isArray(list)) setAvailableModels(list);
+          }}
+          onToast={showToast}
+          onOpenExternal={(url) => { void openExternalUrl(url); }}
+          onUpdateAvailable={(info) => {
+            setUpdateInfo(info);
+            setShowUpdateDialog(true);
+          }}
+        />
+      )}
       {showModelSelector && (
-        <div className="modal-overlay" onClick={() => setShowModelSelector(false)}>
-          <div className="modal model-selector-modal" onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3>选择 AI 模型</h3>
-              <button className="modal-close" onClick={() => setShowModelSelector(false)}>×</button>
-            </div>
-            <div className="modal-content">
-              {availableModels.length === 0 && (
-                <div style={{padding: '20px', textAlign: 'center', color: '#666'}}>
-                  <p>暂无可用模型</p>
-                </div>
-              )}
-              <div className="model-list">
-                {availableModels.map((m) => {
-                  // Determine model status - use path for comparison (more reliable)
-                  const isLoaded = currentModel?.path === m.path || currentModel?.name === m.name;
-                  const isLoading = loadingModelId === m.id;
-                  const isError = errorModelId === m.id;
-
-                  return (
-                    <div
-                      key={m.id}
-                      className={`model-item ${isLoaded ? 'loaded' : ''} ${isLoading ? 'loading' : ''} ${isError ? 'error' : ''} ${!m.exists ? 'missing' : ''}`}
-                    >
-                      <div className="model-info">
-                        <div className="model-name-wrapper">
-                          <span className="model-name">{m.display_name}</span>
-                          {/* Status indicator dot */}
-                          {isLoaded && (
-                            <span className="model-status-indicator loaded" title="当前已加载">
-                              <span className="indicator-dot" />
-                              <span className="indicator-pulse" />
-                            </span>
-                          )}
-                          {isLoading && (
-                            <span className="model-status-indicator loading" title="加载中...">
-                              <span className="indicator-spinner" />
-                            </span>
-                          )}
-                          {isError && (
-                            <span className="model-status-indicator error" title="加载失败">
-                              <span className="indicator-dot" />
-                            </span>
-                          )}
-                          {!m.exists && !isLoaded && !isLoading && !isError && (
-                            <span className="model-status-indicator missing" title="未下载">
-                              <span className="indicator-dot" />
-                            </span>
-                          )}
-                        </div>
-                        <span className="model-type">{m.type?.toUpperCase()}</span>
-                      </div>
-                      <div className="model-actions">
-                        {/* 显示模型大小 */}
-                        <span className="model-size">{m.size_mb > 0 ? `${m.size_mb} MB` : '未下载'}</span>
-
-                        {m.exists ? (
-                          /* 模型存在时显示加载状态 */
-                          <>
-                            {isLoaded ? (
-                              <span className="model-status-badge loaded">
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                                  <polyline points="20 6 9 17 4 12" />
-                                </svg>
-                                已加载
-                              </span>
-                            ) : isLoading ? (
-                              <span className="model-status-badge loading">
-                                <span className="badge-spinner" />
-                                加载中...
-                              </span>
-                            ) : isError ? (
-                              <span className="model-status-badge error">
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                                  <line x1="18" y1="6" x2="6" y2="18" />
-                                  <line x1="6" y1="6" x2="18" y2="18" />
-                                </svg>
-                                失败
-                              </span>
-                            ) : (
-                              <button className="btn btn-small" onClick={() => handleLoadFixedModel(m.id)}>
-                                加载
-                              </button>
-                            )}
-                            {/* 重选文件按钮 - 对已加载模型也显示 */}
-                            {isLoaded && (
-                              <button 
-                                className="btn btn-small btn-outline" 
-                                onClick={() => selectCustomModel(m.id)}
-                                title="重新选择模型文件"
-                              >
-                                重选
-                              </button>
-                            )}
-                            {/* 仅对非内置模型显示下载按钮(1.4 已随安装包内置) */}
-                            {m.download_url && !isLoaded && m.id !== '1.4' && (
-                              <button
-                                className="btn btn-small btn-link"
-                                onClick={() => handleDownloadModel(m.download_url!, m.name, m.display_name || m.name)}
-                              >
-                                下载
-                              </button>
-                            )}
-                          </>
-                        ) : (
-                          /* 模型不存在时显示选择和下载 */
-                          <>
-                            {isLoading ? (
-                              <span className="model-status-badge loading">
-                                <span className="badge-spinner" />
-                                加载中...
-                              </span>
-                            ) : isError ? (
-                              <span className="model-status-badge error">加载失败</span>
-                            ) : (
-                              <button className="btn btn-small" onClick={() => selectCustomModel(m.id)}>
-                                选择文件
-                              </button>
-                            )}
-                            {m.download_url && m.id !== '1.4' && (
-                              <button
-                                className="btn btn-small btn-link"
-                                onClick={() => handleDownloadModel(m.download_url!, m.name, m.display_name || m.name)}
-                              >
-                                下载
-                              </button>
-                            )}
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-            {isLoadingModel && <div className="modal-loading">加载模型中...</div>}
-          </div>
-        </div>
+        <ModelSelectorModal
+          availableModels={availableModels}
+          currentModel={currentModel}
+          loadingModelId={loadingModelId}
+          errorModelId={errorModelId}
+          isLoadingModel={isLoadingModel}
+          onClose={() => setShowModelSelector(false)}
+          onLoadModel={handleLoadFixedModel}
+          onSelectCustomModel={selectCustomModel}
+          onDownloadModel={handleDownloadModel}
+        />
       )}
 
       {/* Update Dialog */}
       {showUpdateDialog && updateInfo && (
-        <div className="modal-overlay" onClick={handleUpdateDismiss}>
-          <div className="modal update-modal" onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3>🎉 发现新版本</h3>
-              <button className="modal-close" onClick={handleUpdateDismiss}>×</button>
-            </div>
-            <div className="modal-content">
-              <div className="update-info">
-                <div className="version-comparison">
-                  <div className="version-item current">
-                    <span className="version-label">当前版本</span>
-                    <span className="version-number">v{updateInfo.currentVersion}</span>
-                  </div>
-                  <div className="version-arrow">→</div>
-                  <div className="version-item latest">
-                    <span className="version-label">最新版本</span>
-                    <span className="version-number">v{updateInfo.latestVersion}</span>
-                  </div>
-                </div>
-                <div className="update-message">
-                  <p>检测到新版本可用！建议更新以获得更好的体验。</p>
-                </div>
-                {updateInfo.releaseNotes && (
-                  <div className="update-notes">
-                    <h4>更新内容：</h4>
-                    <div 
-                      className="release-notes-content"
-                      dangerouslySetInnerHTML={{ 
-                        __html: updateInfo.releaseNotes
-                          .replace(/#{1,6}\s(.+)/g, '<h4>$1</h4>')
-                          .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-                          .replace(/\*([^*]+)\*/g, '<em>$1</em>')
-                          .replace(/- (.+)/g, '• $1')
-                          .replace(/\n/g, '<br/>')
-                          .substring(0, 2000)
-                      }}
-                    />
-                  </div>
-                )}
-              </div>
-              <div className="update-actions">
-                <button className="btn btn-secondary" onClick={handleUpdateDismiss}>
-                  稍后再说
-                </button>
-                <button className="btn btn-primary" onClick={handleUpdateDownload}>
-                  立即下载更新
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+        <UpdateModal
+          info={updateInfo}
+          onDismiss={handleUpdateDismiss}
+          onDownload={handleUpdateDownload}
+        />
       )}
 
       {/* GIF Frame Preview Modal */}
@@ -3406,455 +3273,54 @@ function App() {
       />
 
       {showHelp && (
-        <div className="modal-overlay" onClick={() => setShowHelp(false)}>
-          <div className="modal modal-help" onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3>帮助说明</h3>
-              <button className="modal-close" onClick={() => setShowHelp(false)}>×</button>
-            </div>
-            <div className="modal-content help-content">
-              <div className="help-intro">
-                <div className="help-intro-icon">
-                  <img src="./logo.png" alt="logo" />
-                </div>
-                <h2>小飞AI抠图 v{__APP_VERSION__}</h2>
-                <p>完全本地运行的 AI 智能抠图工具，基于 Electron 构建，保护您的隐私。</p>
-              </div>
-
-              <div className="help-features">
-                <div className="feature-item">
-                  <div className="feature-icon">🔒</div>
-                  <div className="feature-text">
-                    <h4>完全离线</h4>
-                    <p>所有处理均在本地完成，无需联网，保护隐私</p>
-                  </div>
-                </div>
-                <div className="feature-item">
-                  <div className="feature-icon">⚡</div>
-                  <div className="feature-text">
-                    <h4>快速高效</h4>
-                    <p>基于 RMBG 模型，毫秒级处理速度</p>
-                  </div>
-                </div>
-                <div className="feature-item">
-                  <div className="feature-icon">✏️</div>
-                  <div className="feature-text">
-                    <h4>擦除修补</h4>
-                    <p>手动擦除或修补抠图结果，精细控制</p>
-                  </div>
-                </div>
-                <div className="feature-item">
-                  <div className="feature-icon">🎨</div>
-                  <div className="feature-text">
-                    <h4>背景替换</h4>
-                    <p>支持纯色、自定义颜色或图片背景</p>
-                  </div>
-                </div>
-                <div className="feature-item">
-                  <div className="feature-icon">🎬</div>
-                  <div className="feature-text">
-                    <h4>GIF 支持</h4>
-                    <p>逐帧处理 GIF 动图，保留动画效果</p>
-                  </div>
-                </div>
-                <div className="feature-item">
-                  <div className="feature-icon">⌨️</div>
-                  <div className="feature-text">
-                    <h4>快捷键支持</h4>
-                    <p>丰富的键盘快捷键，提升工作效率</p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="help-guide">
-                <h3>快速上手</h3>
-                <div className="guide-steps">
-                  <div className="guide-step">
-                    <div className="step-number">1</div>
-                    <div className="step-content">
-                      <h4>选择图片</h4>
-                      <p>点击"选择"按钮或拖拽图片到窗口，支持 PNG、JPG、WebP、GIF 格式。也可使用快捷键 ⌘+O 或 Ctrl+V 粘贴图片</p>
-                    </div>
-                  </div>
-                  <div className="guide-step">
-                    <div className="step-number">2</div>
-                    <div className="step-content">
-                      <h4>AI 抠图</h4>
-                      <p>点击"抠图"按钮或使用 ⌘+P 快捷键，AI 自动去除背景，首次加载约 1-2 秒</p>
-                    </div>
-                  </div>
-                  <div className="guide-step">
-                    <div className="step-number">3</div>
-                    <div className="step-content">
-                      <h4>精细编辑（可选）</h4>
-                      <p>使用擦除/修补工具手动调整抠图结果，或按 ⌘+B 切换背景颜色/图片</p>
-                    </div>
-                  </div>
-                  <div className="guide-step">
-                    <div className="step-number">4</div>
-                    <div className="step-content">
-                      <h4>导出结果</h4>
-                      <p>点击"导出"或使用 ⌘+S 保存图片，也可使用 ⌘+C 复制到剪贴板</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="help-shortcuts">
-                <h3>快捷键</h3>
-                <div className="shortcut-list">
-                  <div className="shortcut-item">
-                    <kbd>⌘</kbd> + <kbd>O</kbd>
-                    <span>选择图片</span>
-                  </div>
-                  <div className="shortcut-item">
-                    <kbd>⌘</kbd> + <kbd>P</kbd>
-                    <span>AI 抠图</span>
-                  </div>
-                  <div className="shortcut-item">
-                    <kbd>⌘</kbd> + <kbd>S</kbd>
-                    <span>导出图片</span>
-                  </div>
-                  <div className="shortcut-item">
-                    <kbd>⌘</kbd> + <kbd>C</kbd>
-                    <span>复制到剪贴板</span>
-                  </div>
-                  <div className="shortcut-item">
-                    <kbd>⌘</kbd> + <kbd>V</kbd>
-                    <span>粘贴图片</span>
-                  </div>
-                  <div className="shortcut-item">
-                    <kbd>⌘</kbd> + <kbd>Z</kbd>
-                    <span>撤回操作</span>
-                  </div>
-                  <div className="shortcut-item">
-                    <kbd>⌘</kbd> + <kbd>B</kbd>
-                    <span>切换背景</span>
-                  </div>
-                  <div className="shortcut-item">
-                    <kbd>?</kbd>
-                    <span>显示快捷键帮助</span>
-                  </div>
-                  <div className="shortcut-item">
-                    <kbd>Esc</kbd>
-                    <span>关闭弹窗</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="help-faq">
-                <h3>常见问题</h3>
-                <div className="faq-item">
-                  <p className="faq-q">Q: 首次运行需要联网吗？</p>
-                  <p className="faq-a">A: 不需要。软件完全本地运行，内置 RMBG-1.4 模型，无需联网即可使用。</p>
-                </div>
-                <div className="faq-item">
-                  <p className="faq-q">Q: macOS 提示"无法验证开发者"怎么办？</p>
-                  <p className="faq-a">A: 前往 系统设置 &gt; 隐私与安全，点击"仍要打开"允许运行。这是 macOS 对未签名应用的安全提示。</p>
-                </div>
-                <div className="faq-item">
-                  <p className="faq-q">Q: 如何下载 RMBG-2.0 模型？</p>
-                  <p className="faq-a">A: 点击顶部模型名称打开列表，找到 RMBG-2.0 点击"快捷下载"，下载后将 model.onnx 放到应用目录的 model_files/2.0/ 文件夹中。</p>
-                </div>
-                <div className="faq-item">
-                  <p className="faq-q">Q: 支持哪些图片格式？</p>
-                  <p className="faq-a">A: 支持 PNG、JPG/JPEG、WebP、GIF、BMP 格式。GIF 动图会逐帧处理保留动画效果。</p>
-                </div>
-                <div className="faq-item">
-                  <p className="faq-q">Q: 处理速度慢怎么办？</p>
-                  <p className="faq-a">A: 处理速度取决于电脑配置。首次加载模型需要 1-2 秒，后续处理会更快。推荐使用 M 系列芯片的 Mac 获得最佳性能。</p>
-                </div>
-                <div className="faq-item">
-                  <p className="faq-q">Q: 复制到剪贴板失败怎么办？</p>
-                  <p className="faq-a">A: 如果复制失败，可以使用"导出"功能将图片保存到本地，然后手动复制。某些应用可能不支持直接粘贴图片。</p>
-                </div>
-              </div>
-
-              <div className="help-update">
-                <h3>检查更新</h3>
-                <p>当前版本：v{updateInfo?.currentVersion || '1.0.3'}</p>
-                <button 
-                  className="btn btn-primary" 
-                  onClick={async () => {
-                    showToast('正在检查更新...', 'info');
-                    try {
-                      const result = await checkForUpdates();
-                      console.log('Manual update check result:', result);
-                      
-                      if (result.hasUpdate) {
-                        setUpdateInfo(result);
-                        setShowUpdateDialog(true);
-                        setShowHelp(false); // 关闭帮助页面，避免遮挡更新弹窗
-                        showToast('发现新版本！', 'success');
-                      } else {
-                        showToast('当前已是最新版本', 'success');
-                      }
-                    } catch (error) {
-                      console.error('Failed to check for updates:', error);
-                      showToast('检查更新失败，请稍后重试', 'error');
-                    }
-                  }}
-                >
-                  检查更新
-                </button>
-              </div>
-
-
-
-              <div className="help-contact">
-                <h3>开源地址</h3>
-                <p>本项目已开源，欢迎 Star、Fork 和提交 PR：</p>
-                <a 
-                  className="github-link" 
-                  href="https://github.com/pumf/ai-cutout" 
-                  target="_blank" 
-                  rel="noopener noreferrer"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    window.open('https://github.com/pumf/ai-cutout', '_blank');
-                  }}
-                >
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
-                  </svg>
-                  <span>github.com/pumf/ai-cutout</span>
-                </a>
-              </div>
-            </div>
-          </div>
-        </div>
+        <HelpModal
+          appVersion={__APP_VERSION__}
+          currentVersionLabel={updateInfo?.currentVersion}
+          onClose={() => setShowHelp(false)}
+          onCheckUpdate={async () => {
+            showToast('正在检查更新...', 'info');
+            try {
+              const result = await checkForUpdates();
+              if (result.hasUpdate) {
+                setUpdateInfo(result);
+                setShowUpdateDialog(true);
+                setShowHelp(false);
+                showToast('发现新版本！', 'success');
+              } else {
+                showToast('当前已是最新版本', 'success');
+              }
+            } catch (error) {
+              console.error('Failed to check for updates:', error);
+              showToast('检查更新失败，请稍后重试', 'error');
+            }
+          }}
+          onOpenExternal={(url) => { window.open(url, '_blank'); }}
+        />
       )}
 
       {/* Batch Processing Dialog */}
       {showBatchDialog && (
-        <div className="modal-overlay modal-overlay-blocking">
-          <div className="modal modal-batch resizable-modal">
-            <div className="modal-header">
-              <h3>批量抠图</h3>
-              <button className="modal-close" onClick={handleBatchDialogClose}>×</button>
-            </div>
-            <div className="modal-content batch-content">
-              {/* Stats */}
-              <div className="batch-stats">
-                <div className="stat-item">
-                  <span className="stat-value">{batchTasks.length}</span>
-                  <span className="stat-label">总文件</span>
-                </div>
-                <div className="stat-item success">
-                  <span className="stat-value">{batchTasks.filter(t => t.status === 'success').length}</span>
-                  <span className="stat-label">成功</span>
-                </div>
-                <div className="stat-item error">
-                  <span className="stat-value">{batchTasks.filter(t => t.status === 'error').length}</span>
-                  <span className="stat-label">失败</span>
-                </div>
-                <div className="stat-item pending">
-                  <span className="stat-value">{batchTasks.filter(t => t.status === 'pending' || t.status === 'processing').length}</span>
-                  <span className="stat-label">待处理</span>
-                </div>
-              </div>
-
-              {/* Progress */}
-              {isBatchProcessing && (() => {
-                const done = batchTasks.filter(t => t.status === 'success' || t.status === 'error').length;
-                const total = batchTasks.length;
-                const remaining = total - done;
-                const elapsedMs = Date.now() - batchStartTimeRef.current;
-                // 至少完成 1 张且仍有剩余,才显示 ETA;不够数据时只显示"计算中"
-                const etaMs = (done > 0 && remaining > 0)
-                  ? (elapsedMs / done) * remaining
-                  : NaN;
-                void etaTick; // 引用一下让每秒 tick 触发重渲染
-                return (
-                  <div className="batch-progress">
-                    <div className="progress-bar">
-                      <div
-                        className="progress-fill"
-                        style={{ width: `${(done / total) * 100}%` }}
-                      />
-                    </div>
-                    <span className="progress-text">
-                      {done} / {total}
-                      {remaining > 0 && (
-                        <span className="progress-eta">
-                          {' · 预计剩余 '}
-                          {done === 0 ? '计算中…' : formatEta(etaMs)}
-                        </span>
-                      )}
-                    </span>
-                  </div>
-                );
-              })()}
-
-              {/* File List */}
-              <div className="batch-list">
-                {batchTasks.length === 0 ? (
-                  <div className="batch-empty">
-                    <span className="empty-icon">📁</span>
-                    <p>拖拽文件到此处或点击下方按钮添加</p>
-                    <p className="empty-hint">支持 PNG、JPG、WebP 格式（不支持 GIF）</p>
-                  </div>
-                ) : (
-                  batchTasks.map(task => (
-                    <div 
-                      key={task.id} 
-                      className={`batch-item ${task.status} ${selectedBatchTask?.id === task.id ? 'selected' : ''}`}
-                      onClick={() => {
-                        setSelectedBatchTask(task);
-                        setShowBatchPreview(true);
-                      }}
-                      style={{ cursor: 'pointer' }}
-                      title="点击查看预览"
-                    >
-                      <div className="item-icon">
-                        {task.status === 'success' ? '✓' : 
-                         task.status === 'error' ? '✗' : 
-                         task.status === 'processing' ? '🔄' : 
-                         task.status === 'retrying' ? '↻' : '⏳'}
-                      </div>
-                      <div className="item-info">
-                        <span className="item-name" title={task.fileName}>{task.fileName}</span>
-                        {task.error && <span className="item-error">{task.error}</span>}
-                        {task.retryCount > 0 && <span className="item-retry">已重试 {task.retryCount} 次</span>}
-                      </div>
-                      <div className="item-progress">
-                        {task.status === 'processing' && (
-                          <>
-                            <div className="progress-ring">
-                              <svg viewBox="0 0 36 36">
-                                <path
-                                  className="progress-ring-bg"
-                                  d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                                />
-                                <path
-                                  className="progress-ring-fill"
-                                  strokeDasharray={`${task.progress}, 100`}
-                                  d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                                />
-                              </svg>
-                            </div>
-                          </>
-                        )}
-                      </div>
-                      <div className="item-actions" onClick={e => e.stopPropagation()}>
-                        {task.status === 'error' && !isBatchProcessing && (
-                          <button 
-                            className="btn-icon" 
-                            onClick={() => handleRetryTask(task.id)}
-                            title="重试"
-                          >
-                            ↻
-                          </button>
-                        )}
-                        {!isBatchProcessing && (
-                          <button 
-                            className="btn-icon" 
-                            onClick={() => handleRemoveBatchTask(task.id)}
-                            title="删除"
-                          >
-                            ×
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-
-              {/* Settings */}
-              <div className="batch-settings">
-                <div className="setting-item">
-                  <label>并发数:</label>
-                  <select 
-                    value={batchConcurrency} 
-                    onChange={(e) => setBatchConcurrency(Number(e.target.value))}
-                    disabled={isBatchProcessing}
-                  >
-                    <option value={1}>1 (稳定)</option>
-                    <option value={2}>2 (推荐)</option>
-                    <option value={3}>3 (快速)</option>
-                    <option value={4}>4 (高性能)</option>
-                  </select>
-                </div>
-                <div className="setting-item">
-                  <label>文件名前缀:</label>
-                  <input 
-                    type="text" 
-                    value={batchPrefix}
-                    onChange={(e) => setBatchPrefix(e.target.value)}
-                    placeholder="removed_bg_"
-                    disabled={isBatchProcessing}
-                  />
-                </div>
-              </div>
-
-              {/* Actions */}
-              <div className="batch-actions">
-                <div className="actions-left">
-                  <button 
-                    className="btn btn-secondary" 
-                    onClick={handleBatchFilesSelect}
-                    disabled={isBatchProcessing}
-                  >
-                    <span className="btn-icon">+</span>
-                    添加文件
-                  </button>
-                  <button 
-                    className="btn btn-text" 
-                    onClick={handleClearBatchTasks}
-                    disabled={isBatchProcessing || batchTasks.length === 0}
-                  >
-                    清空列表
-                  </button>
-                </div>
-                <div className="actions-right">
-                  {isBatchProcessing ? (
-                    <button 
-                      className="btn btn-danger" 
-                      onClick={handleStopBatchProcessing}
-                    >
-                      <span className="btn-icon">⏹</span>
-                      停止处理
-                    </button>
-                  ) : (
-                    <>
-                      <button
-                        className="btn btn-secondary"
-                        onClick={handleBatchExport}
-                        disabled={batchTasks.filter(t => t.status === 'success').length === 0}
-                      >
-                        <span className="btn-icon">💾</span>
-                        导出全部
-                      </button>
-                      <button
-                        className="btn btn-secondary"
-                        onClick={async () => {
-                          const res = await (window as any).electronAPI.openFolder(batchOutputDir);
-                          if (res && !res.success) {
-                            showToast(`无法打开目录: ${res.error || '未知错误'}`, 'error');
-                          }
-                        }}
-                        disabled={!batchOutputDir}
-                        title={batchOutputDir ? `打开 ${batchOutputDir}` : '导出后可用'}
-                      >
-                        <span className="btn-icon"><Icon name="folder-open" /></span>
-                        打开目录
-                      </button>
-                      <button 
-                        className="btn btn-primary" 
-                        onClick={handleStartBatchProcessing}
-                        disabled={batchTasks.length === 0 || batchTasks.every(t => t.status === 'success')}
-                      >
-                        <span className="btn-icon">▶</span>
-                        开始处理
-                      </button>
-                    </>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
+        <BatchProcessingModal
+          tasks={batchTasks}
+          isBatchProcessing={isBatchProcessing}
+          batchConcurrency={batchConcurrency}
+          setBatchConcurrency={setBatchConcurrency}
+          batchPrefix={batchPrefix}
+          setBatchPrefix={setBatchPrefix}
+          batchStartTimeMs={batchStartTimeRef.current}
+          etaTick={etaTick}
+          formatEta={formatEta}
+          selectedTaskId={selectedBatchTask?.id}
+          onPreview={(task) => { setSelectedBatchTask(task); setShowBatchPreview(true); }}
+          onAddFiles={handleBatchFilesSelect}
+          onClear={handleClearBatchTasks}
+          onClose={handleBatchDialogClose}
+          onStart={handleStartBatchProcessing}
+          onStop={handleStopBatchProcessing}
+          onExport={handleBatchExport}
+          onRetry={handleRetryTask}
+          onRemove={handleRemoveBatchTask}
+        />
       )}
 
       {/* Batch Preview Modal */}
@@ -3976,314 +3442,38 @@ function App() {
 
             {/* Background Picker */}
             {processedImage && (
-              <div ref={bgPickerRef} className="bg-picker">
-                <button
-                  className="btn btn-icon-only"
-                  onClick={() => setShowBgPicker(!showBgPicker)}
-                  title="背景"
-                >
-                  <span className="btn-icon"><Icon name="palette" /></span>
-                </button>
-                {showBgPicker && (
-                  <div className="bg-picker-dropdown">
-                    <div className="bg-picker-section">
-                      <div className="bg-picker-label">快速场景</div>
-                      <div className="bg-scene-presets">
-                        {([
-                          { icon: '📷', name: '证件白底', color: '#ffffff' },
-                          { icon: '🛒', name: '商品浅灰', color: '#f5f5f5' },
-                          { icon: '🎉', name: '节日红', color: '#dc2626' },
-                          { icon: '✨', name: '透明', color: 'transparent' },
-                        ] as const).map(s => (
-                          <button
-                            key={s.name}
-                            className={`bg-scene-btn ${bgColor === s.color && !bgImage ? 'active' : ''}`}
-                            onClick={() => { setBgColor(s.color); setBgImage(null); setBgImageName(null); }}
-                            title={s.color === 'transparent' ? '透明背景' : s.color}
-                          >
-                            <span className="bg-scene-icon">{s.icon}</span>
-                            <span className="bg-scene-name">{s.name}</span>
-                          </button>
-                        ))}
-                        {customScenes.map(s => (
-                          <button
-                            key={s.color}
-                            className={`bg-scene-btn custom ${bgColor === s.color && !bgImage ? 'active' : ''}`}
-                            onClick={() => { setBgColor(s.color); setBgImage(null); setBgImageName(null); }}
-                            title={s.color}
-                          >
-                            <span
-                              className="bg-scene-icon"
-                              style={{ background: s.color, width: 14, height: 14, borderRadius: 3, border: '1px solid rgba(0,0,0,0.1)' }}
-                            />
-                            <span className="bg-scene-name">{s.name}</span>
-                            <span
-                              className="bg-scene-remove"
-                              onClick={(e) => { e.stopPropagation(); handleRemoveCustomScene(s.color); }}
-                              title="删除场景"
-                            >×</span>
-                          </button>
-                        ))}
-                        {customScenes.length < 8 && (
-                          addingScene ? (
-                            <div className="bg-scene-add-inline">
-                              <input
-                                type="text"
-                                value={newSceneName}
-                                onChange={(e) => setNewSceneName(e.target.value)}
-                                placeholder="场景名称"
-                                maxLength={10}
-                                autoFocus
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter') handleAddCustomScene();
-                                  else if (e.key === 'Escape') { setAddingScene(false); setNewSceneName(''); }
-                                }}
-                                onBlur={() => { if (!newSceneName.trim()) setAddingScene(false); }}
-                              />
-                              <button onClick={handleAddCustomScene} title="保存">✓</button>
-                            </div>
-                          ) : (
-                            <button
-                              className="bg-scene-btn add"
-                              onClick={() => setAddingScene(true)}
-                              title={bgColor === 'transparent' ? '请先选颜色,再保存场景' : `保存当前颜色 ${bgColor.toUpperCase()} 为场景`}
-                              disabled={bgColor === 'transparent'}
-                            >
-                              <span className="bg-scene-icon">+</span>
-                              <span className="bg-scene-name">保存当前色</span>
-                            </button>
-                          )
-                        )}
-                      </div>
-                    </div>
-                    <div className="bg-picker-section">
-                      <div className="bg-picker-label">预设颜色</div>
-                      <div className="bg-picker-colors">
-                        {([
-                          { value: 'transparent', label: '透明' },
-                          { value: '#ffffff', label: '白色' },
-                          { value: '#000000', label: '黑色' },
-                          { value: '#9ca3af', label: '灰色' },
-                          { value: '#ef4444', label: '红色' },
-                          { value: '#f97316', label: '橙色' },
-                          { value: '#f59e0b', label: '黄色' },
-                          { value: '#10b981', label: '绿色' },
-                          { value: '#06b6d4', label: '青色' },
-                          { value: '#3b82f6', label: '蓝色' },
-                          { value: '#8b5cf6', label: '紫色' },
-                          { value: '#ec4899', label: '粉色' },
-                        ] as const).map(preset => (
-                          <div
-                            key={preset.value}
-                            className={`bg-picker-color ${bgColor === preset.value && !bgImage ? 'active' : ''}`}
-                            onClick={() => { setBgColor(preset.value); setBgImage(null); }}
-                            style={preset.value !== 'transparent' ? { backgroundColor: preset.value } : undefined}
-                            title={preset.label}
-                          >
-                            {preset.value === 'transparent' && <div className="bg-color-transparent" />}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="bg-picker-section">
-                      <div className="bg-picker-label">自定义颜色</div>
-                      <div className="bg-picker-custom-row">
-                        <input
-                          type="color"
-                          value={bgColor === 'transparent' ? '#ffffff' : bgColor}
-                          onChange={(e) => { setBgColor(e.target.value); setBgImage(null); }}
-                          onBlur={(e) => addRecentColor(e.target.value)}
-                          className="bg-picker-color-input"
-                          title="拾色器"
-                        />
-                        <input
-                          type="text"
-                          value={bgColor === 'transparent' ? '' : bgColor.toUpperCase()}
-                          onChange={(e) => {
-                            const raw = e.target.value.trim();
-                            if (raw === '' || raw === '#') return;
-                            const hex = raw.startsWith('#') ? raw : '#' + raw;
-                            // 支持 #RGB / #RRGGBB 即时应用
-                            if (/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(hex)) {
-                              setBgColor(hex.toLowerCase());
-                              setBgImage(null);
-                            }
-                          }}
-                          onBlur={(e) => {
-                            const raw = e.target.value.trim();
-                            const hex = raw.startsWith('#') ? raw : '#' + raw;
-                            if (/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(hex)) {
-                              addRecentColor(hex.toLowerCase());
-                            }
-                          }}
-                          placeholder="#RRGGBB"
-                          className="bg-picker-hex-input"
-                          spellCheck={false}
-                          maxLength={7}
-                          title="可粘贴 hex 色值,如 #3B82F6"
-                        />
-                      </div>
-                      {recentColors.length > 0 && (
-                        <>
-                          <div className="bg-picker-sublabel">最近使用</div>
-                          <div className="bg-picker-colors">
-                            {recentColors.map(c => (
-                              <div
-                                key={c}
-                                className={`bg-picker-color ${bgColor === c && !bgImage ? 'active' : ''}`}
-                                onClick={() => { setBgColor(c); setBgImage(null); }}
-                                style={{ backgroundColor: c }}
-                                title={c}
-                              />
-                            ))}
-                          </div>
-                        </>
-                      )}
-                      {/* 不透明度滑块:仅非透明纯色时显示 */}
-                      {bgColor !== 'transparent' && !bgImage && (
-                        <div className="bg-picker-slider-row">
-                          <span className="bg-picker-slider-label">不透明度</span>
-                          <input
-                            type="range"
-                            min={0}
-                            max={100}
-                            step={1}
-                            value={bgAlpha}
-                            onChange={(e) => setBgAlpha(Number(e.target.value))}
-                            className="bg-picker-slider"
-                          />
-                          <span className="bg-picker-slider-value">{bgAlpha}%</span>
-                        </div>
-                      )}
-                    </div>
-                    <div className="bg-picker-section">
-                      <div className="bg-picker-label">背景图片</div>
-                      {bgImage ? (
-                        <>
-                          <div className="bg-image-preview">
-                            <img src={bgImage} alt={bgImageName || '背景图'} className="bg-image-thumb" />
-                            <span className="bg-image-name" title={bgImageName || ''}>
-                              {bgImageName || '已选背景图'}
-                            </span>
-                            <button
-                              className="bg-image-clear"
-                              onClick={() => { setBgImage(null); setBgImageName(null); }}
-                              title="清除背景图"
-                            >×</button>
-                          </div>
-                          <div className="bg-shortcut-hint">
-                            💡 Shift + 拖动 调背景位置 / Shift + 滚轮 调背景大小
-                          </div>
-                          <div className="bg-fill-row">
-                            <span className="bg-fill-label">填充方式</span>
-                            <select
-                              className="bg-fill-select"
-                              value={bgFillMode}
-                              onChange={(e) => {
-                                const v = e.target.value as any;
-                                setBgFillMode(v);
-                                // 切到 custom 时自动展开"位置和大小",方便立即调整
-                                if (v === 'custom') setShowBgAdvanced(true);
-                              }}
-                            >
-                              <option value="cover">填充(撑满裁剪)</option>
-                              <option value="contain">适应(留边)</option>
-                              <option value="center">居中原图</option>
-                              <option value="repeat">平铺重复</option>
-                              <option value="custom">自定义(自由调整)</option>
-                            </select>
-                          </div>
-                          {/* 折叠"位置和大小" — 默认收起,展开后显示缩放/偏移/重置 */}
-                          <button
-                            className={`bg-advanced-toggle ${showBgAdvanced ? 'expanded' : ''}`}
-                            onClick={() => setShowBgAdvanced(v => !v)}
-                          >
-                            <span className="bg-advanced-toggle-arrow">▶</span>
-                            位置和大小
-                            {(bgScale !== 100 || bgOffsetX !== 0 || bgOffsetY !== 0) && (
-                              <span style={{ marginLeft: 4, color: 'var(--primary-color)' }}>•</span>
-                            )}
-                          </button>
-                          {showBgAdvanced && (
-                            <>
-                              {(bgFillMode === 'center' || bgFillMode === 'repeat' || bgFillMode === 'custom') && (
-                                <div className="bg-picker-slider-row">
-                                  <span className="bg-picker-slider-label">缩放</span>
-                                  <input
-                                    type="range"
-                                    min={10}
-                                    max={300}
-                                    step={5}
-                                    value={bgScale}
-                                    onChange={(e) => setBgScale(Number(e.target.value))}
-                                    className="bg-picker-slider"
-                                  />
-                                  <span className="bg-picker-slider-value">{bgScale}%</span>
-                                </div>
-                              )}
-                              <div className="bg-picker-slider-row">
-                                <span className="bg-picker-slider-label">水平</span>
-                                <input
-                                  type="range"
-                                  min={-50}
-                                  max={50}
-                                  step={1}
-                                  value={bgOffsetX}
-                                  onChange={(e) => setBgOffsetX(Number(e.target.value))}
-                                  className="bg-picker-slider"
-                                />
-                                <span className="bg-picker-slider-value">{bgOffsetX > 0 ? '+' : ''}{bgOffsetX}%</span>
-                              </div>
-                              <div className="bg-picker-slider-row">
-                                <span className="bg-picker-slider-label">垂直</span>
-                                <input
-                                  type="range"
-                                  min={-50}
-                                  max={50}
-                                  step={1}
-                                  value={bgOffsetY}
-                                  onChange={(e) => setBgOffsetY(Number(e.target.value))}
-                                  className="bg-picker-slider"
-                                />
-                                <span className="bg-picker-slider-value">{bgOffsetY > 0 ? '+' : ''}{bgOffsetY}%</span>
-                              </div>
-                              {(bgScale !== 100 || bgOffsetX !== 0 || bgOffsetY !== 0) && (
-                                <button
-                                  className="bg-picker-reset-btn"
-                                  onClick={() => { setBgScale(100); setBgOffsetX(0); setBgOffsetY(0); }}
-                                >重置位置和大小</button>
-                              )}
-                            </>
-                          )}
-                        </>
-                      ) : (
-                        <button
-                          className="btn btn-secondary btn-sm"
-                          onClick={() => {
-                            const input = document.createElement('input');
-                            input.type = 'file';
-                            input.accept = 'image/*';
-                            input.onchange = (e) => {
-                              const file = (e.target as HTMLInputElement).files?.[0];
-                              if (file) {
-                                const reader = new FileReader();
-                                reader.onload = (ev) => {
-                                  setBgImage(ev.target?.result as string);
-                                  setBgImageName(file.name);
-                                };
-                                reader.readAsDataURL(file);
-                              }
-                            };
-                            input.click();
-                          }}
-                        >
-                          📁 选择图片
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
+              <BackgroundPicker
+                ref={bgPickerRef}
+                open={showBgPicker}
+                onToggle={() => setShowBgPicker(!showBgPicker)}
+                bgColor={bgColor}
+                setBgColor={setBgColor}
+                bgImage={bgImage}
+                setBgImage={setBgImage}
+                bgImageName={bgImageName}
+                setBgImageName={setBgImageName}
+                bgFillMode={bgFillMode}
+                setBgFillMode={setBgFillMode}
+                bgAlpha={bgAlpha}
+                setBgAlpha={setBgAlpha}
+                bgScale={bgScale}
+                setBgScale={setBgScale}
+                bgOffsetX={bgOffsetX}
+                setBgOffsetX={setBgOffsetX}
+                bgOffsetY={bgOffsetY}
+                setBgOffsetY={setBgOffsetY}
+                showBgAdvanced={showBgAdvanced}
+                setShowBgAdvanced={setShowBgAdvanced}
+                recentColors={recentColors}
+                addRecentColor={addRecentColor}
+                customScenes={customScenes}
+                addingScene={addingScene}
+                setAddingScene={setAddingScene}
+                newSceneName={newSceneName}
+                setNewSceneName={setNewSceneName}
+                onAddCustomScene={handleAddCustomScene}
+                onRemoveCustomScene={handleRemoveCustomScene}
+              />
             )}
           </div>
 
@@ -4739,6 +3929,29 @@ function App() {
         </div>
       )}
 
+      {/* 导出成功后的浮动"查看"按钮 (5s 自动消失) */}
+      {exported && (
+        <div className="exported-pill" role="status">
+          <span className="exported-pill-icon" aria-hidden="true">✓</span>
+          <span className="exported-pill-text">{exported.label}</span>
+          <button
+            className="exported-pill-action"
+            onClick={() => {
+              void showItemInFolder(exported.path);
+              dismissExportedPath();
+            }}
+          >
+            去查看
+          </button>
+          <button
+            className="exported-pill-close"
+            onClick={dismissExportedPath}
+            title="关闭"
+            aria-label="关闭"
+          >×</button>
+        </div>
+      )}
+
       {/* Keyboard Shortcuts Help Button */}
       <button
         className="shortcuts-help-btn"
@@ -4750,642 +3963,40 @@ function App() {
 
       {/* Keyboard Shortcuts Modal */}
       {showShortcuts && (
-        <div className="modal-overlay" onClick={() => setShowShortcuts(false)}>
-          <div className="modal shortcuts-modal" onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3>键盘快捷键</h3>
-              <button className="modal-close" onClick={() => setShowShortcuts(false)}>×</button>
-            </div>
-            <div className="modal-content">
-              <div className="shortcuts-list">
-                <div className="shortcut-item">
-                  <kbd>Ctrl</kbd> + <kbd>O</kbd>
-                  <span>打开图片</span>
-                </div>
-                <div className="shortcut-item">
-                  <kbd>Ctrl</kbd> + <kbd>P</kbd>
-                  <span>AI 抠图</span>
-                </div>
-                <div className="shortcut-item">
-                  <kbd>Ctrl</kbd> + <kbd>S</kbd>
-                  <span>导出图片</span>
-                </div>
-                <div className="shortcut-item">
-                  <kbd>Ctrl</kbd> + <kbd>C</kbd>
-                  <span>复制到剪贴板</span>
-                </div>
-                <div className="shortcut-item">
-                  <kbd>Ctrl</kbd> + <kbd>V</kbd>
-                  <span>粘贴图片</span>
-                </div>
-                <div className="shortcut-item">
-                  <kbd>Ctrl</kbd> + <kbd>Z</kbd>
-                  <span>撤销</span>
-                </div>
-                <div className="shortcut-item">
-                  <kbd>Ctrl</kbd> + <kbd>B</kbd>
-                  <span>切换背景选择</span>
-                </div>
-                <div className="shortcut-item">
-                  <kbd>?</kbd>
-                  <span>显示快捷键</span>
-                </div>
-                <div className="shortcut-item">
-                  <kbd>Esc</kbd>
-                  <span>关闭弹窗</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
+        <ShortcutsModal onClose={() => setShowShortcuts(false)} />
       )}
 
       {/* Paste Confirmation Modal */}
       {showPasteConfirm && (
-        <div className="modal-overlay" onClick={cancelPaste}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3>替换图片</h3>
-              <button className="modal-close" onClick={cancelPaste}>×</button>
-            </div>
-            <div className="modal-content">
-              <p>当前已有图片，是否替换为新图片？</p>
-              <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '8px' }}>
-                当前操作将丢失未保存的编辑内容
-              </p>
-              <div style={{ display: 'flex', gap: '12px', marginTop: '24px', justifyContent: 'flex-end' }}>
-                <button className="btn btn-secondary" onClick={cancelPaste}>
-                  取消
-                </button>
-                <button className="btn btn-primary" onClick={confirmPaste}>
-                  确认替换
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+        <PasteConfirmModal onConfirm={confirmPaste} onCancel={cancelPaste} />
       )}
 
       {/* 导出选项弹框 */}
       {showExportDialog && (
-        <div className="modal-overlay modal-overlay-blocking" onClick={() => setShowExportDialog(false)}>
-          <div className="modal" style={{ maxWidth: 420 }} onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3>导出图片</h3>
-              <button className="modal-close" onClick={() => setShowExportDialog(false)}>×</button>
-            </div>
-            <div className="modal-content modal-body">
-              <div style={{ marginBottom: 18 }}>
-                <label style={{ display: 'block', fontSize: 13, color: 'var(--text-secondary)', marginBottom: 6 }}>
-                  输出格式 {isOriginalGif && <span style={{ color: '#94a3b8' }}>(GIF 文件锁定为 GIF)</span>}
-                </label>
-                <select
-                  className="output-format-select"
-                  value={outputFormat}
-                  onChange={(e) => setOutputFormat(e.target.value as 'png' | 'webp' | 'jpg')}
-                  disabled={isOriginalGif}
-                  style={{ width: '100%' }}
-                >
-                  <option value="png">PNG — 无损,支持透明</option>
-                  <option value="webp">WebP — 较小,支持透明</option>
-                  <option value="jpg">JPG — 最小,不支持透明(以白色填充)</option>
-                </select>
-              </div>
-              <div style={{ marginBottom: 14 }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: isOriginalGif ? 'not-allowed' : 'pointer', opacity: isOriginalGif ? 0.5 : 1 }}>
-                  <input
-                    type="checkbox"
-                    checked={autoCrop}
-                    onChange={(e) => setAutoCrop(e.target.checked)}
-                    disabled={isOriginalGif}
-                  />
-                  <span style={{ fontSize: 14 }}>智能裁切 — 自动去除透明边,文件更小</span>
-                </label>
-              </div>
-              <div style={{ marginBottom: 20, opacity: isOriginalGif ? 0.5 : 1 }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 14 }}>
-                  <span style={{ minWidth: 90, color: 'var(--text-secondary)', fontSize: 13 }}>边缘羽化</span>
-                  <input
-                    type="range"
-                    min={0}
-                    max={10}
-                    step={1}
-                    value={featherRadius}
-                    onChange={(e) => setFeatherRadius(Number(e.target.value))}
-                    disabled={isOriginalGif}
-                    style={{ flex: 1 }}
-                    title="0 = 关闭,数值越大边缘越柔和"
-                  />
-                  <span style={{ minWidth: 40, textAlign: 'right', fontSize: 12, color: 'var(--text-secondary)' }}>
-                    {featherRadius === 0 ? '关' : `${featherRadius}px`}
-                  </span>
-                </label>
-              </div>
-              <div className="modal-actions">
-                <button
-                  className="btn btn-secondary"
-                  onClick={() => setShowExportDialog(false)}
-                >取消</button>
-                <button
-                  className="btn btn-primary"
-                  onClick={async () => {
-                    setShowExportDialog(false);
-                    await handleSaveWithMask();
-                  }}
-                >导出</button>
-              </div>
-            </div>
-          </div>
-        </div>
+        <ExportDialog
+          outputFormat={outputFormat}
+          setOutputFormat={setOutputFormat}
+          autoCrop={autoCrop}
+          setAutoCrop={setAutoCrop}
+          featherRadius={featherRadius}
+          setFeatherRadius={setFeatherRadius}
+          isOriginalGif={isOriginalGif}
+          onCancel={() => setShowExportDialog(false)}
+          onConfirm={async () => {
+            setShowExportDialog(false);
+            await handleSaveWithMask();
+          }}
+        />
       )}
 
       {/* 下载模型说明弹框 */}
       {downloadDialog && (
-        <div className="modal-overlay modal-overlay-blocking" onClick={() => setDownloadDialog(null)}>
-          <div className="modal" style={{ maxWidth: 480 }} onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3>下载 {downloadDialog.displayName}</h3>
-              <button className="modal-close" onClick={() => setDownloadDialog(null)}>×</button>
-            </div>
-            <div className="modal-content modal-body">
-              <p style={{ marginBottom: 16, color: 'var(--text-secondary)', fontSize: 13, lineHeight: 1.6 }}>
-                模型文件较大,需在浏览器中手动下载。下载完成后按以下步骤加载:
-              </p>
-              <ol style={{ marginBottom: 20, paddingLeft: 22, lineHeight: 2, fontSize: 14 }}>
-                <li>点击下方"打开下载页",在浏览器中下载 <code style={{ background: 'var(--bg-color)', padding: '1px 6px', borderRadius: 4, fontFamily: 'monospace', fontSize: 13 }}>model.onnx</code></li>
-                <li>回到模型列表,点击该模型的"选择文件",选取刚下载的文件 — 应用会自动放置并加载</li>
-              </ol>
-              <div className="modal-actions">
-                <button
-                  className="btn btn-secondary"
-                  onClick={() => setDownloadDialog(null)}
-                >稍后</button>
-                <button
-                  className="btn btn-primary"
-                  onClick={async () => {
-                    try {
-                      await openExternalUrl(downloadDialog.url);
-                      showToast('已在浏览器打开下载页', 'success');
-                    } catch {
-                      showToast('打开失败', 'error');
-                    }
-                    setDownloadDialog(null);
-                  }}
-                >打开下载页</button>
-              </div>
-            </div>
-          </div>
-        </div>
+        <DownloadInfoModal
+          info={downloadDialog}
+          onClose={() => setDownloadDialog(null)}
+          onToast={showToast}
+        />
       )}
-    </div>
-  );
-}
-
-// Batch Preview Modal Component
-interface BatchPreviewModalProps {
-  task: {
-    id: string;
-    file: File;
-    fileName: string;
-    status: 'pending' | 'processing' | 'success' | 'error' | 'retrying';
-    originalImage?: string;
-    processedImage?: string;
-  };
-  onClose: () => void;
-  onPrev?: () => void;
-  onNext?: () => void;
-  indexInfo?: { current: number; total: number };
-}
-
-function BatchPreviewModal({ task, onClose, onPrev, onNext, indexInfo }: BatchPreviewModalProps) {
-  const [originalUrl, setOriginalUrl] = useState<string | null>(null);
-
-  // 左右共享同一套 transform:scale + translate(像素)。
-  // 缩放以鼠标点为锚点(参考主预览 handleZoom 的公式),让锚点视觉上保持不动,避免"乱动"。
-  const [scale, setScale] = useState(1);
-  const [translate, setTranslate] = useState({ x: 0, y: 0 });
-  const scaleRef = useRef(1);
-  const translateRef = useRef({ x: 0, y: 0 });
-
-  const draggingRef = useRef(false);
-  const dragStartRef = useRef({ mouseX: 0, mouseY: 0, tx: 0, ty: 0 });
-  const [isDragging, setIsDragging] = useState(false);
-
-  useEffect(() => {
-    if (task.file) {
-      const url = URL.createObjectURL(task.file);
-      setOriginalUrl(url);
-      return () => URL.revokeObjectURL(url);
-    }
-  }, [task.file]);
-
-  const handleWheel = (e: React.WheelEvent) => {
-    e.preventDefault();
-    const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
-    const delta = e.deltaY > 0 ? 0.9 : 1.1;
-    const newScale = Math.max(0.1, Math.min(8, scaleRef.current * delta));
-
-    // 以鼠标位置为锚点重算 translate,保持鼠标下的图像点视觉不动
-    const panelCx = rect.width / 2;
-    const panelCy = rect.height / 2;
-    const mouseX = e.clientX - rect.left;
-    const mouseY = e.clientY - rect.top;
-    const worldX = (mouseX - panelCx - translateRef.current.x) / scaleRef.current;
-    const worldY = (mouseY - panelCy - translateRef.current.y) / scaleRef.current;
-    const newTx = mouseX - panelCx - worldX * newScale;
-    const newTy = mouseY - panelCy - worldY * newScale;
-
-    scaleRef.current = newScale;
-    translateRef.current = { x: newTx, y: newTy };
-    setScale(newScale);
-    setTranslate({ x: newTx, y: newTy });
-  };
-
-  const handleMouseDown = (e: React.MouseEvent) => {
-    if (e.button !== 0) return;
-    draggingRef.current = true;
-    setIsDragging(true);
-    dragStartRef.current = {
-      mouseX: e.clientX,
-      mouseY: e.clientY,
-      tx: translateRef.current.x,
-      ty: translateRef.current.y,
-    };
-    e.preventDefault();
-  };
-
-  useEffect(() => {
-    const onMove = (e: MouseEvent) => {
-      if (!draggingRef.current) return;
-      const dx = e.clientX - dragStartRef.current.mouseX;
-      const dy = e.clientY - dragStartRef.current.mouseY;
-      const newTx = dragStartRef.current.tx + dx;
-      const newTy = dragStartRef.current.ty + dy;
-      translateRef.current = { x: newTx, y: newTy };
-      setTranslate({ x: newTx, y: newTy });
-    };
-    const onUp = () => {
-      if (draggingRef.current) {
-        draggingRef.current = false;
-        setIsDragging(false);
-      }
-    };
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
-    return () => {
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
-    };
-  }, []);
-
-  const handleReset = () => {
-    scaleRef.current = 1;
-    translateRef.current = { x: 0, y: 0 };
-    setScale(1);
-    setTranslate({ x: 0, y: 0 });
-  };
-
-  // 切换任务时自动重置缩放/位置,避免上一张的 transform 残留到下一张
-  useEffect(() => {
-    handleReset();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [task.id]);
-
-  // 键盘导航:← 上一张,→ 下一张,Esc 关闭
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'ArrowLeft' && onPrev) { e.preventDefault(); onPrev(); }
-      else if (e.key === 'ArrowRight' && onNext) { e.preventDefault(); onNext(); }
-      else if (e.key === 'Escape') { e.preventDefault(); onClose(); }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onPrev, onNext, onClose]);
-
-  const imgStyle: React.CSSProperties = {
-    transform: `translate(${translate.x}px, ${translate.y}px) scale(${scale})`,
-    transformOrigin: '50% 50%',
-    willChange: 'transform',
-    cursor: isDragging ? 'grabbing' : 'grab',
-    userSelect: 'none',
-  };
-  
-  return (
-    <div className="modal-overlay modal-overlay-blocking">
-      <div className="modal modal-preview resizable-modal">
-        <div className="modal-header">
-          <h3 title={task.fileName}>
-            图片预览 - {task.fileName}
-            {indexInfo && (
-              <span style={{ marginLeft: 8, fontSize: 13, color: 'var(--text-secondary)', fontWeight: 'normal' }}>
-                ({indexInfo.current} / {indexInfo.total})
-              </span>
-            )}
-          </h3>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <button
-              onClick={onPrev}
-              disabled={!onPrev}
-              style={{ padding: '4px 10px', fontSize: 13, border: '1px solid var(--border-color)', background: 'transparent', borderRadius: 6, cursor: onPrev ? 'pointer' : 'not-allowed', opacity: onPrev ? 1 : 0.4 }}
-              title="上一张 (←)"
-            >◀ 上一张</button>
-            <button
-              onClick={onNext}
-              disabled={!onNext}
-              style={{ padding: '4px 10px', fontSize: 13, border: '1px solid var(--border-color)', background: 'transparent', borderRadius: 6, cursor: onNext ? 'pointer' : 'not-allowed', opacity: onNext ? 1 : 0.4 }}
-              title="下一张 (→)"
-            >下一张 ▶</button>
-            <span style={{ fontSize: 12, color: 'var(--text-secondary)', marginLeft: 8 }}>缩放: {Math.round(scale * 100)}%</span>
-            <button
-              onClick={handleReset}
-              style={{ padding: '4px 10px', fontSize: 12, border: '1px solid var(--border-color)', background: 'transparent', borderRadius: 6, cursor: 'pointer' }}
-              title="重置缩放与位置"
-            >重置</button>
-            <button className="modal-close" onClick={onClose}>×</button>
-          </div>
-        </div>
-        <div className="modal-content preview-content">
-          <div className="preview-comparison">
-            <div className="preview-panel">
-              <div className="preview-label">原始图片 (滚轮缩放 / 拖动平移)</div>
-              <div
-                className="preview-image-wrapper"
-                onWheel={handleWheel}
-                onMouseDown={handleMouseDown}
-                style={{ overflow: 'hidden', cursor: isDragging ? 'grabbing' : 'grab' }}
-              >
-                {task.originalImage ? (
-                  <img
-                    src={task.originalImage}
-                    alt="Original"
-                    className="preview-img"
-                    style={imgStyle}
-                    draggable={false}
-                  />
-                ) : originalUrl ? (
-                  <img
-                    src={originalUrl}
-                    alt="Original"
-                    className="preview-img"
-                    style={imgStyle}
-                    draggable={false}
-                  />
-                ) : (
-                  <div className="preview-placeholder">
-                    <span>暂无原始图片</span>
-                  </div>
-                )}
-              </div>
-            </div>
-            <div className="preview-panel">
-              <div className="preview-label">
-                {task.status === 'success' ? '处理后 (滚轮缩放 / 拖动平移)' : '原图 (滚轮缩放 / 拖动平移)'}
-              </div>
-              <div
-                className="preview-image-wrapper"
-                onWheel={handleWheel}
-                onMouseDown={handleMouseDown}
-                style={{ overflow: 'hidden', cursor: isDragging ? 'grabbing' : 'grab' }}
-              >
-                {task.processedImage ? (
-                  <img
-                    src={task.processedImage}
-                    alt="Processed"
-                    className="preview-img"
-                    style={{
-                      ...imgStyle,
-                      background: 'repeating-conic-gradient(#e5e7eb 0% 25%, #f3f4f6 0% 50%) 50% / 20px 20px',
-                    }}
-                    draggable={false}
-                  />
-                ) : originalUrl ? (
-                  <img
-                    src={originalUrl}
-                    alt="Original"
-                    className="preview-img"
-                    style={imgStyle}
-                    draggable={false}
-                  />
-                ) : (
-                  <div className="preview-placeholder">
-                    <span>
-                      {task.status === 'processing' ? '处理中...' : 
-                       task.status === 'pending' ? '等待处理' : 
-                       task.status === 'error' ? '处理失败' : '准备处理'}
-                    </span>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// GIF Frame Preview Modal Component
-
-// GIF Frame Preview Modal Component - Improved version
-interface GifFramePreviewModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  frameIndex: number | null;
-  originalFrames: string[];
-  processedFrames: string[];
-}
-
-function GifFramePreviewModal({ isOpen, onClose, frameIndex, originalFrames, processedFrames }: GifFramePreviewModalProps) {
-  const [currentIndex, setCurrentIndex] = useState(frameIndex || 0);
-  const [scale, setScale] = useState(1);
-  const [translate, setTranslate] = useState({ x: 0, y: 0 });
-  const [isDragging, setIsDragging] = useState(false);
-  const scaleRef = useRef(1);
-  const translateRef = useRef({ x: 0, y: 0 });
-  const startPosRef = useRef({ x: 0, y: 0 });
-  const startTranslateRef = useRef({ x: 0, y: 0 });
-
-  const totalFrames = Math.max(originalFrames.length, processedFrames.length);
-  const originalUrl = originalFrames[currentIndex];
-  const processedUrl = processedFrames[currentIndex];
-
-  // Reset state when opening
-  useEffect(() => {
-    if (isOpen && frameIndex !== null) {
-      setCurrentIndex(frameIndex);
-      scaleRef.current = 1;
-      translateRef.current = { x: 0, y: 0 };
-      setScale(1);
-      setTranslate({ x: 0, y: 0 });
-    }
-  }, [isOpen, frameIndex]);
-  
-  // Keyboard navigation
-  useEffect(() => {
-    if (!isOpen) return;
-    
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') {
-        e.preventDefault();
-        goToPrevFrame();
-      } else if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
-        e.preventDefault();
-        goToNextFrame();
-      } else if (e.key === 'Escape') {
-        onClose();
-      }
-    };
-    
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, currentIndex, totalFrames]);
-  
-  const goToPrevFrame = () => {
-    setCurrentIndex((prev: number) => (prev > 0 ? prev - 1 : totalFrames - 1));
-    resetView();
-  };
-  
-  const goToNextFrame = () => {
-    setCurrentIndex((prev: number) => (prev < totalFrames - 1 ? prev + 1 : 0));
-    resetView();
-  };
-  
-  const resetView = () => {
-    scaleRef.current = 1;
-    translateRef.current = { x: 0, y: 0 };
-    setScale(1);
-    setTranslate({ x: 0, y: 0 });
-  };
-
-  const handleWheel = (e: React.WheelEvent) => {
-    e.preventDefault();
-    const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
-    const delta = e.deltaY > 0 ? 0.9 : 1.1;
-    const newScale = Math.max(0.1, Math.min(8, scaleRef.current * delta));
-    const panelCx = rect.width / 2;
-    const panelCy = rect.height / 2;
-    const mouseX = e.clientX - rect.left;
-    const mouseY = e.clientY - rect.top;
-    const worldX = (mouseX - panelCx - translateRef.current.x) / scaleRef.current;
-    const worldY = (mouseY - panelCy - translateRef.current.y) / scaleRef.current;
-    const newTx = mouseX - panelCx - worldX * newScale;
-    const newTy = mouseY - panelCy - worldY * newScale;
-    scaleRef.current = newScale;
-    translateRef.current = { x: newTx, y: newTy };
-    setScale(newScale);
-    setTranslate({ x: newTx, y: newTy });
-  };
-
-  const handleMouseDown = (e: React.MouseEvent) => {
-    if (e.button !== 0) return;
-    setIsDragging(true);
-    startPosRef.current = { x: e.clientX, y: e.clientY };
-    startTranslateRef.current = { x: translateRef.current.x, y: translateRef.current.y };
-    e.preventDefault();
-  };
-
-  // 拖动:用 window 级监听,鼠标拖出 wrapper 边界也能继续到松手
-  useEffect(() => {
-    if (!isDragging) return;
-    const onMove = (e: MouseEvent) => {
-      const newTx = startTranslateRef.current.x + (e.clientX - startPosRef.current.x);
-      const newTy = startTranslateRef.current.y + (e.clientY - startPosRef.current.y);
-      translateRef.current = { x: newTx, y: newTy };
-      setTranslate({ x: newTx, y: newTy });
-    };
-    const onUp = () => setIsDragging(false);
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
-    return () => {
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
-    };
-  }, [isDragging]);
-
-  if (!isOpen) return null;
-
-  const imageStyle: React.CSSProperties = {
-    transform: `translate(${translate.x}px, ${translate.y}px) scale(${scale})`,
-    transformOrigin: '50% 50%',
-    cursor: isDragging ? 'grabbing' : 'grab',
-    willChange: 'transform',
-    userSelect: 'none',
-  };
-  
-  return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal modal-gif-frame" onClick={e => e.stopPropagation()}>
-        <div className="modal-header">
-          <div className="gif-frame-header-left">
-            <h3>第 {currentIndex + 1} / {totalFrames} 帧</h3>
-            <span className="gif-frame-scale">缩放: {Math.round(scale * 100)}%</span>
-          </div>
-          <div className="gif-frame-nav-buttons">
-            <button 
-              className="gif-frame-nav-btn" 
-              onClick={goToPrevFrame}
-              title="上一帧 (↑/←)"
-            >
-              ◀ 上一帧
-            </button>
-            <button 
-              className="gif-frame-nav-btn" 
-              onClick={goToNextFrame}
-              title="下一帧 (↓/→)"
-            >
-              下一帧 ▶
-            </button>
-            <button 
-              className="gif-frame-nav-btn reset-btn" 
-              onClick={resetView}
-              title="重置视图"
-            >
-              ⟲ 重置
-            </button>
-          </div>
-          <button className="modal-close" onClick={onClose}>×</button>
-        </div>
-        <div className="modal-content gif-frame-content">
-          <div className="gif-frame-comparison">
-            {originalUrl && (
-              <div className="gif-frame-panel">
-                <div className="gif-frame-label">原图 (滚轮缩放 / 拖动平移)</div>
-                <div
-                  className="gif-frame-image-wrapper"
-                  onWheel={handleWheel}
-                  onMouseDown={handleMouseDown}
-                  style={{ overflow: 'hidden', cursor: isDragging ? 'grabbing' : 'grab' }}
-                >
-                  <img
-                    src={originalUrl}
-                    alt={`Original Frame ${currentIndex + 1}`}
-                    style={imageStyle}
-                    draggable={false}
-                  />
-                </div>
-              </div>
-            )}
-            {processedUrl && (
-              <div className="gif-frame-panel">
-                <div className="gif-frame-label">处理后 (滚轮缩放 / 拖动平移)</div>
-                <div
-                  className="gif-frame-image-wrapper"
-                  onWheel={handleWheel}
-                  onMouseDown={handleMouseDown}
-                  style={{ overflow: 'hidden', cursor: isDragging ? 'grabbing' : 'grab' }}
-                >
-                  <img
-                    src={processedUrl}
-                    alt={`Processed Frame ${currentIndex + 1}`}
-                    style={imageStyle}
-                    draggable={false}
-                  />
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
     </div>
   );
 }

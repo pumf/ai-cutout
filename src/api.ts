@@ -20,6 +20,8 @@ declare global {
       getBackendPort: () => Promise<number>;
       checkPythonDeps: () => Promise<{usingSystemPython: boolean; hasDependencies: boolean; pythonCommand: string}>;
       installPythonDeps: () => Promise<boolean>;
+      openFolder: (dir: string) => Promise<{success: boolean; error?: string}>;
+      showItemInFolder: (filePath: string) => Promise<{success: boolean; error?: string}>;
     };
   }
 }
@@ -209,4 +211,38 @@ export async function saveImageToPath(imageData: string, filePath: string): Prom
     throw new Error('Electron API not available');
   }
   return window.electronAPI.saveImageToPath(imageData, filePath);
+}
+
+export async function openFolder(dir: string): Promise<{success: boolean; error?: string}> {
+  if (!window.electronAPI) {
+    throw new Error('Electron API not available');
+  }
+  return window.electronAPI.openFolder(dir);
+}
+
+export async function showItemInFolder(filePath: string): Promise<{success: boolean; error?: string}> {
+  if (!window.electronAPI) {
+    throw new Error('Electron API not available');
+  }
+  return window.electronAPI.showItemInFolder(filePath);
+}
+
+export interface ModelDownloadProgressResponse {
+  status: 'idle' | 'downloading' | 'extracting' | 'done' | 'error';
+  percent: number;
+  downloaded: number;
+  total: number;
+  speed_bps: number;
+  error?: string | null;
+  started_at?: number;
+}
+
+export async function startModelDownload(modelId: string): Promise<{ success: boolean; already_exists?: boolean; already_running?: boolean; started?: boolean; error?: string }> {
+  const response = await fetch(`${getBackendUrl()}/models/download/${modelId}`, { method: 'POST' });
+  return response.json();
+}
+
+export async function getModelDownloadProgress(modelId: string): Promise<ModelDownloadProgressResponse> {
+  const response = await fetch(`${getBackendUrl()}/models/download-progress/${modelId}`);
+  return response.json();
 }

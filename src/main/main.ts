@@ -841,6 +841,16 @@ ipcMain.handle('open-folder', async (_event: any, dir: string) => {
   return errMsg ? { success: false, error: errMsg } : { success: true };
 });
 
+// Reveal a file in the system file manager (Finder/Explorer) and highlight it
+ipcMain.handle('show-item-in-folder', async (_event: any, filePath: string) => {
+  const { shell } = require('electron');
+  if (!filePath || !fs.existsSync(filePath)) {
+    return { success: false, error: 'File does not exist' };
+  }
+  shell.showItemInFolder(filePath);
+  return { success: true };
+});
+
 // Version comparison helper
 function compareVersions(v1: string, v2: string): number {
   const parts1 = v1.split('.').map(Number);

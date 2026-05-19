@@ -563,7 +563,10 @@ async def unload_model_endpoint():
 @app.get("/models/download-status")
 async def get_download_status():
     """Get model download status"""
-    from backend.model_manager import get_available_models
+    try:
+        from backend.model_manager import get_available_models
+    except ImportError:
+        from model_manager import get_available_models
     return {
         "models": get_available_models(),
         "model_dir": str(MODEL_DIR),
@@ -572,18 +575,42 @@ async def get_download_status():
 
 @app.post("/models/download/{model_id}")
 async def download_model_endpoint(model_id: str):
-    """Download a model"""
-    from backend.model_manager import download_model
-    
+    """异步下载模型 — 立即返回,前端通过 /models/download-progress/{model_id} 轮询"""
     try:
-        success = download_model(model_id)
-        if success:
-            return {"success": True, "message": f"Model {model_id} downloaded"}
-        else:
-            raise HTTPException(status_code=500, detail="Download failed")
+        from backend.model_manager import start_download_async
+    except ImportError:
+        from model_manager import start_download_async
+
+    try:
+        result = start_download_async(model_id)
+        if not result.get("success"):
+            raise HTTPException(status_code=400, detail=result.get("error", "启动下载失败"))
+        return result
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Download error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/models/download-progress/{model_id}")
+async def get_model_download_progress(model_id: str):
+    """查询单个模型的下载进度"""
+    try:
+        from backend.model_manager import get_download_progress
+    except ImportError:
+        from model_manager import get_download_progress
+    return get_download_progress(model_id)
+
+
+@app.get("/models/download-progress")
+async def get_all_download_progress():
+    """查询所有模型的下载进度"""
+    try:
+        from backend.model_manager import get_download_progress
+    except ImportError:
+        from model_manager import get_download_progress
+    return get_download_progress()
 
 @app.post("/process")
 async def process_upload(request: Request, background_tasks: BackgroundTasks):
