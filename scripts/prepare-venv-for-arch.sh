@@ -5,7 +5,9 @@
 set -e
 
 ARCH="${1:-arm64}"
-PROJECT_DIR="/Users/mac/Project/open_code/ai-cutout"
+# 解析项目根目录 = 脚本所在目录的父目录 (兼容 CI 与本地)
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+PROJECT_DIR="$( cd "$SCRIPT_DIR/.." && pwd )"
 cd "$PROJECT_DIR"
 
 echo "=== 准备 $ARCH 架构的 venv ==="

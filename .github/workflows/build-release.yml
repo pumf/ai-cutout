@@ -134,8 +134,8 @@ jobs:
         shell: bash
         run: |
           python -m venv venv-minimal
-          venv-minimal/Scripts/pip install --upgrade pip
-          venv-minimal/Scripts/pip install $PY_DEPS
+          venv-minimal/Scripts/python -m pip install --upgrade pip
+          venv-minimal/Scripts/python -m pip install $PY_DEPS
 
       - name: Build (NSIS)
         shell: bash

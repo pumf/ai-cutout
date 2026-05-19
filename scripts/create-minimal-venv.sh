@@ -5,7 +5,8 @@ set -e
 
 echo "🚀 创建精简 Python 环境..."
 
-PROJECT_DIR="/Users/mac/Project/open_code/ai-cutout"
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+PROJECT_DIR="$( cd "$SCRIPT_DIR/.." && pwd )"
 cd "$PROJECT_DIR"
 
 # 创建精简目录
