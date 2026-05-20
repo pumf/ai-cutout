@@ -258,7 +258,7 @@ jobs:
           - Linux 用户需为 AppImage 添加可执行权限
           EOF
           # 若 release 已存在 gh 会返回非零,允许失败但保留 stderr 让我们看到原因
-          if ! gh release create "v${VERSION}" \
+          if ! gh release create "v${VERSION}" --repo "$GITHUB_REPOSITORY" \
             --title "小飞AI抠图 v${VERSION}" \
             --notes-file release_notes.md \
             --draft=false \
@@ -275,7 +275,7 @@ jobs:
           find artifacts/ -type f \( -name "*.dmg" -o -name "*.exe" -o -name "*.AppImage" \) -print0 \
             | while IFS= read -r -d '' file; do
               echo "Uploading: $file"
-              gh release upload "v${VERSION}" "$file" --clobber || echo "::error::Failed to upload $file"
+              gh release upload "v${VERSION}" "$file" --clobber --repo "$GITHUB_REPOSITORY" || echo "::error::Failed to upload $file"
             done
 
       - name: Verify Release
@@ -283,4 +283,4 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION="${{ env.VERSION }}"
-          gh release view "v${VERSION}" --json tagName,name,assets || echo "Could not verify release"
+          gh release view "v${VERSION}" --repo "$GITHUB_REPOSITORY" --json tagName,name,assets || echo "Could not verify release"
