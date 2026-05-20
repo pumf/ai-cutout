@@ -348,23 +348,22 @@ async function startPythonBackend(): Promise<void> {
       // Also check stderr for server ready messages (some Python logs go to stderr)
       checkServerReady(output);
 
-      // Check for architecture mismatch error (macOS/Linux)
+      // 仅对架构 / Rosetta / Windows 路径错误做"分类化"提示;
+      // 其余错误 (ImportError / OSError / dlopen 失败等) 不再用模糊模板覆盖真实信息,
+      // 改为让 close 事件携带完整 errorOutput 反馈给 UI,便于诊断
       if (output.includes('bad CPU type') || output.includes('Rosetta')) {
-        reject(new Error('Architecture mismatch: The embedded Python environment is not compatible with this system. Please install Python 3.9+ and required packages manually.'));
+        reject(new Error('Architecture mismatch: 嵌入的 Python 环境与当前系统不兼容。错误详情:\n' + output));
+        return;
       }
 
-      // Check for module import errors (missing dependencies)
-      if (output.includes('ModuleNotFoundError') || output.includes('ImportError')) {
-        reject(new Error('Missing Python dependencies: Please ensure all required packages are installed. Run: pip install torch torchvision numpy pillow onnxruntime fastapi uvicorn python-multipart python-json-logger'));
-      }
-
-      // Check for Windows-specific errors
       if (process.platform === 'win32') {
         if (output.includes('is not recognized') || output.includes('not found')) {
           reject(new Error('Python not found: Please install Python 3.9+ from https://python.org and ensure it is added to PATH.'));
+          return;
         }
         if (output.includes('Permission denied')) {
           reject(new Error('Permission denied: Please run the application as Administrator or check antivirus settings.'));
+          return;
         }
       }
     });

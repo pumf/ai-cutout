@@ -24,10 +24,26 @@ import uvicorn
 
 # Setup logging to both console and file
 # 优先用 Electron 主进程通过 env 传入的可写路径(packaged 时 Resources/ 只读);
-# 否则回退到项目内 logs(dev 模式)
-_env_log_dir = os.environ.get('AI_CUTOUT_LOG_DIR')
-log_dir = Path(_env_log_dir) if _env_log_dir else (Path(__file__).parent.parent / 'logs')
-log_dir.mkdir(parents=True, exist_ok=True)
+# 否则回退到项目内 logs(dev 模式);两者都失败时用系统临时目录,确保永不崩
+import tempfile
+def _resolve_log_dir() -> Path:
+    candidates = [
+        os.environ.get('AI_CUTOUT_LOG_DIR'),
+        str(Path(__file__).parent.parent / 'logs'),
+        str(Path(tempfile.gettempdir()) / 'xiaofei-ai-cutout' / 'logs'),
+    ]
+    for c in candidates:
+        if not c:
+            continue
+        try:
+            p = Path(c)
+            p.mkdir(parents=True, exist_ok=True)
+            return p
+        except OSError:
+            continue
+    return Path(tempfile.gettempdir())  # 终极兜底
+
+log_dir = _resolve_log_dir()
 log_file = log_dir / 'backend.log'
 
 logging.basicConfig(
@@ -42,8 +58,25 @@ logger = logging.getLogger(__name__)
 logger.info(f"Logging to: {log_file}")
 
 MODEL_DIR = Path(__file__).parent.parent / 'model_files'
-OUTPUT_DIR = Path(__file__).parent / 'output'
-OUTPUT_DIR.mkdir(exist_ok=True)
+# OUTPUT_DIR 用于暂存推理结果。packaged .app 时 Resources/ 只读,fall back 到临时目录
+def _resolve_output_dir() -> Path:
+    candidates = [
+        os.environ.get('AI_CUTOUT_OUTPUT_DIR'),
+        str(Path(__file__).parent / 'output'),
+        str(Path(tempfile.gettempdir()) / 'xiaofei-ai-cutout' / 'output'),
+    ]
+    for c in candidates:
+        if not c:
+            continue
+        try:
+            p = Path(c)
+            p.mkdir(parents=True, exist_ok=True)
+            return p
+        except OSError:
+            continue
+    return Path(tempfile.gettempdir())
+
+OUTPUT_DIR = _resolve_output_dir()
 
 
 def _safe_unlink(path: Path) -> None:
